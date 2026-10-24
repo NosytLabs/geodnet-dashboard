@@ -132,7 +132,7 @@
 <div class="layout">
   <div class="card">
     <div id="skyplot"></div>
-    <div class="sky-note" id="skyNote">Skyplot &middot; centre = 90&deg; elevation &middot; rim = 0&deg; horizon &middot; clockwise N&rarr;E&rarr;S&rarr;W</div>
+    <div class="sky-note" id="skyNote">Real GPS skyplot from CelesTrak TLEs · centre = 90° elevation · rim = 0° horizon · clockwise N→E→S→W · no SNR (TLEs don't include signal quality)</div>
   </div>
 
   <div class="side">
@@ -392,6 +392,18 @@ function buildSkyplot(sats) {
   };
 
   const data = Object.values(traces);
+
+  // Update constellation counts
+  const counts = { GPS: 0, GLONASS: 0, Galileo: 0, BeiDou: 0 };
+  for (const key of Object.keys(COLORS)) {
+    const group = usable.filter(s => s.constellation === key);
+    counts[key] = group.length;
+  }
+  document.getElementById('cGPS').textContent = counts.GPS;
+  document.getElementById('cGLONASS').textContent = counts.GLONASS;
+  document.getElementById('cGalileo').textContent = counts.Galileo;
+  document.getElementById('cBeiDou').textContent = counts.BeiDou;
+
   const el = document.getElementById('skyplot');
 
   const config = { displayModeBar: false, responsive: true };
@@ -416,8 +428,12 @@ function buildSkyplot(sats) {
 
 async function tick() {
   try {
-    const res = await fetch('/api/live-telemetry', { cache: 'no-store' });
-    const t = await res.json();
+    const [teleRes, skyRes] = await Promise.all([
+      fetch('/api/live-telemetry', { cache: 'no-store' }),
+      fetch('/api/skyplot', { cache: 'no-store' })
+    ]);
+    const t = await teleRes.json();
+    const s = await skyRes.json();
     const now = new Date().toLocaleTimeString();
 
     renderMetrics(t);
@@ -437,7 +453,16 @@ async function tick() {
         `last attempt ${now} · ${t.error || 'unreachable'}`;
     }
 
-    drawSkyplot(t.satellites_detail || []);
+    // Merge real skyplot (TLE-based GPS) with base telemetry if available
+    const skySats = (s.ok && s.visible) ? s.visible.map(v => ({
+      id: v.prn,
+      constellation: 'GPS',
+      elevation: v.elevation,
+      azimuth: v.azimuth,
+      snr: null  // no SNR from TLEs
+    })) : [];
+    const baseSats = t.satellites_detail || [];
+    drawSkyplot([...skySats, ...baseSats]);
   } catch (err) {
     setStatus(false, 'DISCONNECTED');
     document.getElementById('errBox').style.display = 'block';

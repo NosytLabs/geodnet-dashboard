@@ -621,6 +621,101 @@ app.get('/api/network', async (_req, res) => {
   });
 });
 
+// Skyplot cache
+let skyplotCache = { data: null, expires: 0 };
+
+app.get('/api/skyplot', async (_req, res) => {
+  const now = Date.now();
+  if (skyplotCache.data && skyplotCache.expires > now) {
+    return res.json(skyplotCache.data);
+  }
+  try {
+    const { spawn } = await import('child_process');
+    const py = spawn('C:/Python313/python.exe', ['-c', `
+import json, sys, urllib.request, time
+from skyfield.api import load, Topos, EarthSatellite
+from datetime import datetime, timezone
+
+CACHE_FILE = "/tmp/gps_tles.json"
+TLE_URL = "https://celestrak.org/NORAD/elements/gp.php?GROUP=gps-ops&FORMAT=tle"
+
+def load_tles():
+    try:
+        import os
+        if os.path.exists(CACHE_FILE):
+            with open(CACHE_FILE) as f:
+                data = json.load(f)
+                if time.time() - data["ts"] < 3600:
+                    return data["tles"]
+    except: pass
+    req = urllib.request.Request(TLE_URL, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        body = r.read().decode(errors="replace")
+    lines = body.strip().split("\\n")
+    sats = []
+    for i in range(0, len(lines), 3):
+        if i+2 < len(lines):
+            name = lines[i].strip()
+            l1 = lines[i+1].strip()
+            l2 = lines[i+2].strip()
+            if l1.startswith("1 ") and l2.startswith("2 "):
+                prn = None
+                if "(PRN" in name:
+                    try: prn = int(name.split("(PRN")[1].split(")")[0])
+                    except: pass
+                sats.append((name, l1, l2, prn))
+    try:
+        with open(CACHE_FILE, "w") as f:
+            json.dump({"ts": time.time(), "tles": sats}, f)
+    except: pass
+    return sats
+
+sats = load_tles()
+ts = load.timescale()
+t = ts.from_datetime(datetime.now(timezone.utc))
+station = Topos(latitude_degrees=46.104, longitude_degrees=-64.755, elevation_m=100)
+visible = []
+for name, l1, l2, prn in sats:
+    try:
+        sat = EarthSatellite(l1, l2, name, ts)
+        diff = sat - station
+        topocentric = diff.at(t)
+        alt, az, dist = topocentric.altaz()
+        if alt.degrees > 0:
+            visible.append({
+                "prn": prn,
+                "name": name,
+                "azimuth": round(az.degrees, 2),
+                "elevation": round(alt.degrees, 2),
+                "distance_km": round(dist.km, 1)
+            })
+    except: pass
+visible.sort(key=lambda x: x["elevation"], reverse=True)
+print(json.dumps({
+    "ok": True,
+    "timestamp": datetime.now(timezone.utc).isoformat(),
+    "station": {"lat": 46.104, "lon": -64.755, "elev": 100},
+    "visible": visible,
+    "total_visible": len(visible),
+    "constellation": "GPS"
+}))
+`]);
+    let stdout = '';
+    py.stdout.on('data', d => stdout += d);
+    py.stderr.on('data', d => console.error('skyplot stderr:', d.toString()));
+    await new Promise((resolve, reject) => {
+      py.on('close', code => code === 0 ? resolve() : reject(new Error(`exit ${code}`)));
+      py.on('error', reject);
+    });
+    const data = JSON.parse(stdout.trim());
+    skyplotCache = { data, expires: now + 300000 };
+    res.json(data);
+  } catch (e) {
+    console.error('skyplot error:', e);
+    res.status(500).json({ ok: false, error: String(e) });
+  }
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.listen(CONFIG.port, () => {
