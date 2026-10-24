@@ -435,6 +435,12 @@ function normalize(payload, endpointLabel) {
       beidou: summary.beidou,
       average_snr: average_snr,
     },
+    stream: {
+      uplink_rate: num(pick(payload, ['upDateRate', 'upDataRate', 'uplinkRate', 'up_rate']), null),
+      gnss_rate: num(pick(payload, ['gnssDataRate', 'gnssRate', 'gnss_data_rate']), null),
+      ns_status: pick(payload, ['nsStatus', 'ntripStatus', 'streamStatus'], null),
+      wifi_strength: num(pick(payload, ['wifiStrength', 'wifi_strength', 'rssi']), null),
+    },
     satellites_detail,
   };
 }

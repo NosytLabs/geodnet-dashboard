@@ -124,6 +124,11 @@
   </div>
 </section>
 
+<section class="rate-card card" style="margin-bottom:16px">
+  <div class="label" style="margin-bottom:6px">Live Uplink &middot; from the base</div>
+  <div id="rateChart" style="width:100%;height:150px"></div>
+</section>
+
 <div class="layout">
   <div class="card">
     <div id="skyplot"></div>
@@ -208,6 +213,43 @@ const REFRESH_MS = 4000;          // spec: every 3-5 seconds
 const MIN_SIZE = 7, MAX_SIZE = 26; // marker pixel diameter range, scaled by SNR
 
 let plotReady = typeof Plotly !== 'undefined';
+
+// Live uplink / GNSS-rate history (real data streamed from the base /devStatus).
+const RATE_HISTORY = [];
+const RATE_MAX_POINTS = 60; // ~4 min at 4s cadence
+
+function recordRates(t) {
+  const up = Number(t?.stream?.uplink_rate);
+  const gn = Number(t?.stream?.gnss_rate);
+  const wifi = Number(t?.hardware?.wifi_strength);
+  RATE_HISTORY.push({ t: new Date(), up, gn, wifi });
+  if (RATE_HISTORY.length > RATE_MAX_POINTS) RATE_HISTORY.shift();
+}
+
+function drawRateChart() {
+  if (!plotReady || !RATE_HISTORY.length) return;
+  const times = RATE_HISTORY.map((p) => p.t.toLocaleTimeString());
+  const up = RATE_HISTORY.map((p) => (Number.isFinite(p.up) ? p.up : null));
+  const gn = RATE_HISTORY.map((p) => (Number.isFinite(p.gn) ? p.gn : null));
+  const data = [
+    { x: times, y: up, type: 'scatter', mode: 'lines+markers', name: 'Uplink bps',
+      line: { color: '#38bdf8', width: 2 }, marker: { size: 3, color: '#38bdf8' } },
+    { x: times, y: gn, type: 'scatter', mode: 'lines+markers', name: 'GNSS raw bps',
+      line: { color: '#22c55e', width: 2 }, marker: { size: 3, color: '#22c55e' } },
+  ];
+  const layout = {
+    paper_bgcolor: '#1e293b', plot_bgcolor: '#0f172a',
+    margin: { l: 44, r: 16, t: 12, b: 28 },
+    showlegend: true,
+    legend: { orientation: 'h', x: 0.5, xanchor: 'center', y: 1.12, font: { color: '#f8fafc', size: 10 }, bgcolor: 'rgba(0,0,0,0)' },
+    xaxis: { showgrid: false, tickfont: { color: '#94a3b8', size: 9 }, showticklabels: false },
+    yaxis: { gridcolor: 'rgba(148,163,184,.14)', tickfont: { color: '#94a3b8', size: 9 }, title: { text: 'bps', font: { color: '#94a3b8', size: 9 } } },
+    font: { color: '#f8fafc' },
+  };
+  Plotly.react(document.getElementById('rateChart'), data, layout,
+    { displayModeBar: false, responsive: true });
+}
+
 
 function fmt(v, fallback = '—') {
   if (v === null || v === undefined || v === '') return fallback;
@@ -379,6 +421,8 @@ async function tick() {
     const now = new Date().toLocaleTimeString();
 
     renderMetrics(t);
+    recordRates(t);
+    drawRateChart();
 
     if (t.ok) {
       setStatus(true, 'ONLINE');
