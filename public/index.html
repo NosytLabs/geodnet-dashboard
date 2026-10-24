@@ -36,6 +36,9 @@
   header{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:20px}
   h1{font-size:20px;font-weight:600;letter-spacing:.4px}
   h1 span{color:var(--accent)}
+  .header-nav{display:flex;gap:8px;margin-left:auto}
+  .header-nav a{text-decoration:none;padding:6px 12px;font-size:12px;background:rgba(30,41,59,.9);color:#e2e8f0;border:1px solid rgba(148,163,184,.3);border-radius:6px;transition:background .15s,border-color .15s}
+  .header-nav a:hover{background:rgba(51,65,85,.95);border-color:#38bdf8}
   .sub{color:var(--muted);font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace}
   .grid-metrics{
     display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
@@ -106,10 +109,10 @@
 
 <header>
   <h1>GEODNET <span>GNSS Base Station</span></h1>
-  <nav style="display:flex; gap:8px; margin-left:auto;">
-    <a class="btn" href="/" style="text-decoration:none; padding:6px 12px; font-size:12px; background:rgba(30,41,59,.9); color:#e2e8f0; border:1px solid rgba(148,163,184,.3); border-radius:6px;">Dashboard</a>
-    <a class="btn" href="/globe.html" style="text-decoration:none; padding:6px 12px; font-size:12px; background:rgba(30,41,59,.9); color:#e2e8f0; border:1px solid rgba(148,163,184,.3); border-radius:6px;">3D Globe</a>
-    <a class="btn" href="/history.html" style="text-decoration:none; padding:6px 12px; font-size:12px; background:rgba(30,41,59,.9); color:#e2e8f0; border:1px solid rgba(148,163,184,.3); border-radius:6px;">History</a>
+  <nav class="header-nav">
+    <a href="/">Dashboard</a>
+    <a href="/globe.html">3D Globe</a>
+    <a href="/history.html">History</a>
   </nav>
   <div class="sub" id="hdr">initialising&hellip;</div>
 </header>
@@ -135,10 +138,10 @@
 </section>
 
 <div class="layout">
-  <div class="card">
-    <div id="skyplot"></div>
-    <div class="sky-note" id="skyNote">Real GPS skyplot from CelesTrak TLEs · centre = 90° elevation · rim = 0° horizon · clockwise N→E→S→W · no SNR (TLEs don't include signal quality)</div>
-  </div>
+    <div class="card">
+      <div id="skyplot"></div>
+      <div class="sky-note" id="skyNote">Multi-constellation skyplot from CelesTrak TLEs · centre = 90° elevation · rim = 0° horizon · clockwise N→E→S→W · no SNR (TLEs don't include signal quality)</div>
+    </div>
 
   <div class="side">
     <div class="card">
@@ -285,17 +288,25 @@ function setStatus(online, label) {
   }
 }
 
-function renderMetrics(t) {
-  const s = t.summary || {};
-  document.getElementById('totalSats').textContent = fmt(s.total_tracked, '0');
-  const avg = s.average_snr;
+function renderMetrics(t, s) {
+  const summary = t.summary || {};
+  document.getElementById('totalSats').textContent = fmt(summary.total_tracked > 0 ? summary.total_tracked : (s?.total_visible ?? 0), '0');
+  const avg = summary.average_snr;
   document.getElementById('avgSnr').innerHTML =
     (avg === null || avg === undefined ? '—' : avg) + '<small> dB</small>';
 
-  document.getElementById('cGPS').textContent = s.gps ?? 0;
-  document.getElementById('cGLONASS').textContent = s.glonass ?? 0;
-  document.getElementById('cGalileo').textContent = s.galileo ?? 0;
-  document.getElementById('cBeiDou').textContent = s.beidou ?? 0;
+  // Use skyplot counts when base telemetry has none
+  if (s?.ok && s?.by_constellation) {
+    document.getElementById('cGPS').textContent = s.by_constellation.GPS ?? 0;
+    document.getElementById('cGLONASS').textContent = s.by_constellation.GLONASS ?? 0;
+    document.getElementById('cGalileo').textContent = s.by_constellation.Galileo ?? 0;
+    document.getElementById('cBeiDou').textContent = s.by_constellation.BeiDou ?? 0;
+  } else {
+    document.getElementById('cGPS').textContent = summary.gps ?? 0;
+    document.getElementById('cGLONASS').textContent = summary.glonass ?? 0;
+    document.getElementById('cGalileo').textContent = summary.galileo ?? 0;
+    document.getElementById('cBeiDou').textContent = summary.beidou ?? 0;
+  }
 
   const h = t.hardware || {};
   document.getElementById('hSn').textContent = fmt(h.serial_number);
@@ -441,7 +452,7 @@ async function tick() {
     const s = await skyRes.json();
     const now = new Date().toLocaleTimeString();
 
-    renderMetrics(t);
+    renderMetrics(t, s);
     recordRates(t);
     drawRateChart();
 
@@ -450,7 +461,7 @@ async function tick() {
       document.getElementById('hdr').textContent =
         `miner ${t.source_endpoint || ''} · ${now}`;
       document.getElementById('foot').textContent =
-        `last update ${now} · total tracked ${t.summary.total_tracked} · refresh every ${REFRESH_MS / 1000}s`;
+        `last update ${now} · total tracked ${t.summary.total_tracked || (s?.total_visible ?? 0)} · refresh every ${REFRESH_MS / 1000}s`;
     } else {
       setStatus(false, 'DISCONNECTED');
       document.getElementById('hdr').textContent = `miner offline · ${now}`;
@@ -458,10 +469,10 @@ async function tick() {
         `last attempt ${now} · ${t.error || 'unreachable'}`;
     }
 
-    // Merge real skyplot (TLE-based GPS) with base telemetry if available
+    // Merge real skyplot (TLE-based, all constellations) with base telemetry if available
     const skySats = (s.ok && s.visible) ? s.visible.map(v => ({
       id: v.prn,
-      constellation: 'GPS',
+      constellation: v.constellation || 'GPS',
       elevation: v.elevation,
       azimuth: v.azimuth,
       snr: null  // no SNR from TLEs

@@ -11,9 +11,9 @@
   body { margin:0; font:14px system-ui,-apple-system,Segoe UI,Roboto; background:var(--bg); color:var(--fg); min-height:100vh; }
   header { padding:16px 24px; border-bottom:1px solid rgba(148,163,184,.15); background:rgba(15,23,42,.95); position:sticky; top:0; z-index:10; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
   h1 { margin:0; font-size:18px; font-weight:600; }
-  .btn { background:rgba(30,41,59,.9); color:var(--fg); border:1px solid rgba(148,163,184,.3); border-radius:8px; padding:8px 14px; font:500 13px system-ui; cursor:pointer; transition:background .15s,border-color .15s; }
-  .btn:hover { background:rgba(51,65,85,.95); border-color:#38bdf8; }
-  .btn.active { background:#0ea5e9; border-color:#0ea5e9; color:#082f49; }
+  .header-nav { display:flex; gap:8px; margin-left:auto; }
+  .header-nav a { text-decoration:none; padding:6px 12px; font-size:12px; background:rgba(30,41,59,.9); color:#e2e8f0; border:1px solid rgba(148,163,184,.3); border-radius:6px; transition:background .15s,border-color .15s; }
+  .header-nav a:hover { background:rgba(51,65,85,.95); border-color:#38bdf8; }
   main { padding:24px; display:grid; gap:20px; max-width:1600px; margin:0 auto; }
   .grid { display:grid; gap:20px; }
   .grid-2 { grid-template-columns:repeat(auto-fit,minmax(420px,1fr)); }
@@ -38,11 +38,11 @@
 <body>
 <header>
   <h1>GEODNET · History Charts</h1>
-  <div style="margin-left:auto; display:flex; gap:8px;">
-    <a class="btn" href="/">Dashboard</a>
-    <a class="btn" href="/globe.html">3D Globe</a>
-    <a class="btn active" href="/history.html">History</a>
-  </div>
+  <nav class="header-nav">
+    <a href="/">Dashboard</a>
+    <a href="/globe.html">3D Globe</a>
+    <a href="/history.html">History</a>
+  </nav>
 </header>
 <main>
   <div class="stat-row">
