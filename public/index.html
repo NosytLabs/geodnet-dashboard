@@ -106,6 +106,11 @@
 
 <header>
   <h1>GEODNET <span>GNSS Base Station</span></h1>
+  <nav style="display:flex; gap:8px; margin-left:auto;">
+    <a class="btn" href="/" style="text-decoration:none; padding:6px 12px; font-size:12px; background:rgba(30,41,59,.9); color:#e2e8f0; border:1px solid rgba(148,163,184,.3); border-radius:6px;">Dashboard</a>
+    <a class="btn" href="/globe.html" style="text-decoration:none; padding:6px 12px; font-size:12px; background:rgba(30,41,59,.9); color:#e2e8f0; border:1px solid rgba(148,163,184,.3); border-radius:6px;">3D Globe</a>
+    <a class="btn" href="/history.html" style="text-decoration:none; padding:6px 12px; font-size:12px; background:rgba(30,41,59,.9); color:#e2e8f0; border:1px solid rgba(148,163,184,.3); border-radius:6px;">History</a>
+  </nav>
   <div class="sub" id="hdr">initialising&hellip;</div>
 </header>
 
@@ -507,10 +512,23 @@ function renderNetworkMap(d) {
     : [];
   const nbrs = (d.neighbours || []).map((n) => ({ x: n.lng, y: n.lat, ...n }));
 
+  // Connection lines from our base to each neighbor
+  const connLines = [];
+  if (self && nbrs.length) {
+    for (const n of nbrs) {
+      connLines.push(
+        { type: 'scatter', mode: 'lines', showlegend: false, hoverinfo: 'skip',
+          x: [self.lng, n.lng], y: [self.lat, n.lat],
+          line: { color: 'rgba(56,189,248,0.35)', width: 1, dash: 'dot' }
+        }
+      );
+    }
+  }
+
   const traceSelf = {
     type: 'scatter', mode: 'markers', name: 'Our station',
     x: ours.map((p) => p.x), y: ours.map((p) => p.y),
-    marker: { color: '#38bdf8', size: 16, symbol: 'star-diamond', line: { color: '#fff', width: 1 } },
+    marker: { color: '#38bdf8', size: 18, symbol: 'star-diamond', line: { color: '#fff', width: 2 } },
     text: ours.map((p) => p.text), hoverinfo: 'text',
   };
   const traceNbr = {
@@ -520,9 +538,9 @@ function renderNetworkMap(d) {
       color: nbrs.map((p) =>
         String(p.status).toUpperCase() === 'ONLINE' ? '#22c55e'
         : String(p.status).toUpperCase() === 'ACTIVE' ? '#f59e0b' : '#ef4444'),
-      size: 10, opacity: 0.9, line: { color: 'rgba(15,23,42,.6)', width: 1 },
+      size: 11, opacity: 0.95, line: { color: 'rgba(15,23,42,.6)', width: 1 },
     },
-    text: nbrs.map((p) => `Station #${p.station_id}<br>${p.distance_km} km away ${String(p.status).toLowerCase()}`),
+    text: nbrs.map((p) => `Station #${p.station_id}<br>${p.distance_km} km away · ${String(p.status).toUpperCase()}`),
     hoverinfo: 'text',
   };
   const layout = {
@@ -535,7 +553,7 @@ function renderNetworkMap(d) {
     legend: { orientation: 'h', x: 0.5, xanchor: 'center', y: -0.12, yanchor: 'top', font: { color: '#f8fafc', size: 11 }, bgcolor: 'rgba(0,0,0,0)' },
     font: { color: '#f8fafc' },
   };
-  const data = [];
+  const data = [...connLines];
   if (ours.length) data.push(traceSelf);
   if (nbrs.length) data.push(traceNbr);
   const el = document.getElementById('netmap');

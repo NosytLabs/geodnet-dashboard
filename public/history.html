@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GEODNET · History Charts</title>
+<script src="vendor/plotly-2.35.2.min.js"></script>
+<style>
+  :root { --bg:#0f172a; --card:#1e293b; --muted:#94a3b8; --fg:#f8fafc; --gps:#22c55e; --glo:#f59e0b; --gal:#8b5cf6; --bds:#ef4444; --up:#38bdf8; --gnss:#22c55e; --wifi:#f59e0b; }
+  * { box-sizing:border-box }
+  body { margin:0; font:14px system-ui,-apple-system,Segoe UI,Roboto; background:var(--bg); color:var(--fg); min-height:100vh; }
+  header { padding:16px 24px; border-bottom:1px solid rgba(148,163,184,.15); background:rgba(15,23,42,.95); position:sticky; top:0; z-index:10; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  h1 { margin:0; font-size:18px; font-weight:600; }
+  .btn { background:rgba(30,41,59,.9); color:var(--fg); border:1px solid rgba(148,163,184,.3); border-radius:8px; padding:8px 14px; font:500 13px system-ui; cursor:pointer; transition:background .15s,border-color .15s; }
+  .btn:hover { background:rgba(51,65,85,.95); border-color:#38bdf8; }
+  .btn.active { background:#0ea5e9; border-color:#0ea5e9; color:#082f49; }
+  main { padding:24px; display:grid; gap:20px; max-width:1600px; margin:0 auto; }
+  .grid { display:grid; gap:20px; }
+  .grid-2 { grid-template-columns:repeat(auto-fit,minmax(420px,1fr)); }
+  .grid-1 { grid-template-columns:1fr; }
+  .card { background:var(--card); border:1px solid rgba(148,163,184,.15); border-radius:12px; padding:20px; }
+  .card h2 { margin:0 0 16px; font-size:14px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+  .chart { width:100%; height:300px; }
+  .stat-row { display:flex; gap:16px; flex-wrap:wrap; margin-bottom:16px; }
+  .stat { flex:1; min-width:120px; background:rgba(15,23,42,.6); border:1px solid rgba(148,163,184,.15); border-radius:8px; padding:12px 16px; }
+  .stat .label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; margin-bottom:4px; }
+  .stat .value { font-size:18px; font-weight:600; }
+  .stat.gps .value { color:var(--gps); }
+  .stat.glo .value { color:var(--glo); }
+  .stat.gal .value { color:var(--gal); }
+  .stat.bds .value { color:var(--bds); }
+  .stat.up .value { color:var(--up); }
+  .stat.gnss .value { color:var(--gnss); }
+  .stat.wifi .value { color:var(--wifi); }
+  .empty { display:flex; align-items:center; justify-content:center; height:200px; color:var(--muted); font-size:14px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>GEODNET · History Charts</h1>
+  <div style="margin-left:auto; display:flex; gap:8px;">
+    <a class="btn" href="/">Dashboard</a>
+    <a class="btn" href="/globe.html">3D Globe</a>
+    <a class="btn active" href="/history.html">History</a>
+  </div>
+</header>
+<main>
+  <div class="stat-row">
+    <div class="stat gps"><div class="label">GPS Visible</div><div class="value" id="hGPS">—</div></div>
+    <div class="stat glo"><div class="label">GLONASS Visible</div><div class="value" id="hGLO">—</div></div>
+    <div class="stat gal"><div class="label">Galileo Visible</div><div class="value" id="hGAL">—</div></div>
+    <div class="stat bds"><div class="label">BeiDou Visible</div><div class="value" id="hBDS">—</div></div>
+    <div class="stat"><div class="label">Total Visible</div><div class="value" id="hTOT">—</div></div>
+    <div class="stat up"><div class="label">Uplink (bps)</div><div class="value" id="hUP">—</div></div>
+    <div class="stat gnss"><div class="label">GNSS Raw (bps)</div><div class="value" id="hGNSS">—</div></div>
+    <div class="stat wifi"><div class="label">WiFi (dBm)</div><div class="value" id="hWIFI">—</div></div>
+  </div>
+
+  <div class="grid grid-2">
+    <div class="card"><h2>Uplink & GNSS Raw Rate</h2><div id="chRates" class="chart"></div></div>
+    <div class="card"><h2>WiFi Signal Strength</h2><div id="chWifi" class="chart"></div></div>
+  </div>
+
+  <div class="grid grid-2">
+    <div class="card"><h2>Visible Satellites by Constellation</h2><div id="chSats" class="chart"></div></div>
+    <div class="card"><h2>Total Visible Satellites</h2><div id="chTotal" class="chart"></div></div>
+  </div>
+
+  <div class="grid grid-1">
+    <div class="card"><h2>Rate History (Last 4 Hours)</h2><div id="chAllRates" class="chart" style="height:400px"></div></div>
+  </div>
+</main>
+
+<script>
+const COLORS = { GPS: '#22c55e', GLONASS: '#f59e0b', Galileo: '#8b5cf6', BeiDou: '#ef4444', Uplink: '#38bdf8', GNSS: '#22c55e', WiFi: '#f59e0b' };
+
+function fmtTime(ts) { return new Date(ts).toLocaleTimeString(); }
+
+async function loadHistory() {
+  try {
+    const res = await fetch('/api/history', { cache: 'no-store' });
+    const data = await res.json();
+    if (!data.ok) return;
+    renderAll(data);
+  } catch (e) { console.error('history load:', e); }
+}
+
+function renderAll(d) {
+  const n = d.timestamps.length;
+  if (n === 0) {
+    document.querySelectorAll('.chart').forEach(c => c.innerHTML = '<div class="empty">Waiting for data… (polls every 4s)</div>');
+    return;
+  }
+  const times = d.timestamps.map(fmtTime);
+  const last = i => d[i][d[i].length - 1];
+
+  document.getElementById('hGPS').textContent = last(d.visible_sats.GPS) ?? '—';
+  document.getElementById('hGLO').textContent = last(d.visible_sats.GLONASS) ?? '—';
+  document.getElementById('hGAL').textContent = last(d.visible_sats.Galileo) ?? '—';
+  document.getElementById('hBDS').textContent = last(d.visible_sats.BeiDou) ?? '—';
+  document.getElementById('hTOT').textContent = last(d.total_visible) ?? '—';
+  document.getElementById('hUP').textContent = last(d.uplink) ? last(d.uplink).toFixed(1) : '—';
+  document.getElementById('hGNSS').textContent = last(d.gnss) ? last(d.gnss).toFixed(1) : '—';
+  document.getElementById('hWIFI').textContent = last(d.wifi) ? last(d.wifi).toFixed(1) : '—';
+
+  // Rates chart
+  Plotly.newPlot('chRates', [
+    { x: times, y: d.uplink, name: 'Uplink bps', type: 'scatter', mode: 'lines', line: { color: COLORS.Uplink, width: 2 } },
+    { x: times, y: d.gnss, name: 'GNSS bps', type: 'scatter', mode: 'lines', line: { color: COLORS.GNSS, width: 2 } }
+  ], layout('Rate (bps)'));
+
+  // WiFi chart
+  Plotly.newPlot('chWifi', [
+    { x: times, y: d.wifi, name: 'WiFi dBm', type: 'scatter', mode: 'lines', line: { color: COLORS.WiFi, width: 2 }, fill: 'tozeroy', fillcolor: 'rgba(245,158,11,.15)' }
+  ], layout('dBm'));
+
+  // Constellation counts
+  const satTraces = ['GPS','GLONASS','Galileo','BeiDou'].map(c => ({
+    x: times, y: d.visible_sats[c], name: c, type: 'scatter', mode: 'lines',
+    line: { color: COLORS[c], width: 2 }, stackgroup: 'sats'
+  }));
+  Plotly.newPlot('chSats', satTraces, layout('Count', { showlegend: true, legend: { orientation: 'h', y: 1.1 } }));
+
+  // Total visible
+  Plotly.newPlot('chTotal', [{
+    x: times, y: d.total_visible, name: 'Total', type: 'scatter', mode: 'lines+markers',
+    line: { color: '#f8fafc', width: 2 }, marker: { size: 4 }
+  }], layout('Count'));
+
+  // All rates combined
+  Plotly.newPlot('chAllRates', [
+    { x: times, y: d.uplink, name: 'Uplink bps', yaxis: 'y', type: 'scatter', mode: 'lines', line: { color: COLORS.Uplink, width: 2 } },
+    { x: times, y: d.gnss, name: 'GNSS bps', yaxis: 'y', type: 'scatter', mode: 'lines', line: { color: COLORS.GNSS, width: 2 } },
+    { x: times, y: d.wifi, name: 'WiFi dBm', yaxis: 'y2', type: 'scatter', mode: 'lines', line: { color: COLORS.WiFi, width: 2, dash: 'dot' } }
+  ], {
+    ...layout(''),
+    yaxis: { title: 'Rate (bps)', gridcolor: 'rgba(148,163,184,.14)', tickfont: { color: '#94a3b8' } },
+    yaxis2: { title: 'WiFi (dBm)', overlaying: 'y', side: 'right', gridcolor: 'rgba(148,163,184,.05)', tickfont: { color: '#94a3b8' } },
+    legend: { orientation: 'h', y: 1.1 }
+  });
+}
+
+function layout(yTitle, extra={}) {
+  return {
+    paper_bgcolor: '#1e293b', plot_bgcolor: '#0f172a',
+    margin: { l: 50, r: 20, t: 10, b: 40 },
+    xaxis: { showgrid: false, tickfont: { color: '#94a3b8', size: 10 }, tickangle: -30, nticks: 12 },
+    yaxis: { title: { text: yTitle, font: { color: '#94a3b8', size: 11 } }, gridcolor: 'rgba(148,163,184,.14)', tickfont: { color: '#94a3b8', size: 10 } },
+    font: { color: '#f8fafc', size: 11 },
+    showlegend: false,
+    ...extra
+  };
+}
+
+// Initial load + auto-refresh
+loadHistory();
+setInterval(loadHistory, 12000); // every 12s (3 polls)
+</script>
+</body>
+</html>

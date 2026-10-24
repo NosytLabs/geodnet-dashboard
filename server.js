@@ -515,6 +515,8 @@ app.get('/api/live-telemetry', async (_req, res) => {
     if (!normalized.satellites_detail.length) {
       normalized = mergeCloudSatellites(normalized, await fetchGeodnetSatellites());
     }
+    // Record history (skyplot from cache)
+    recordHistory(normalized, skyplotCache.data);
     return res.status(200).json(normalized);
   } catch (err) {
     return res.status(200).json(offlinePayload('poll_error', String(err?.message || err)));
@@ -621,9 +623,70 @@ app.get('/api/network', async (_req, res) => {
   });
 });
 
+// Historical data storage (in-memory, ring buffer)
+const HISTORY_MAX = 3600; // 1 hour at 1s, but we poll at 4s so ~4 hours
+let historyBuffer = {
+  timestamps: [],
+  uplink: [],
+  gnss: [],
+  wifi: [],
+  visibleSats: { GPS: [], GLONASS: [], Galileo: [], BeiDou: [] },
+  totalVisible: []
+};
+
 // Skyplot cache
 let skyplotCache = { data: null, expires: 0 };
 
+function recordHistory(t, s) {
+  const ts = Date.now();
+  historyBuffer.timestamps.push(ts);
+  historyBuffer.uplink.push(t.stream?.uplink_rate ?? null);
+  historyBuffer.gnss.push(t.stream?.gnss_rate ?? null);
+  historyBuffer.wifi.push(t.stream?.wifi_strength ?? null);
+  
+  if (s?.ok && s?.visible) {
+    const counts = { GPS: 0, GLONASS: 0, Galileo: 0, BeiDou: 0 };
+    for (const v of s.visible) {
+      if (counts.hasOwnProperty(v.constellation)) counts[v.constellation]++;
+    }
+    historyBuffer.visibleSats.GPS.push(counts.GPS);
+    historyBuffer.visibleSats.GLONASS.push(counts.GLONASS);
+    historyBuffer.visibleSats.Galileo.push(counts.Galileo);
+    historyBuffer.visibleSats.BeiDou.push(counts.BeiDou);
+    historyBuffer.totalVisible.push(s.total_visible);
+  } else {
+    historyBuffer.visibleSats.GPS.push(null);
+    historyBuffer.visibleSats.GLONASS.push(null);
+    historyBuffer.visibleSats.Galileo.push(null);
+    historyBuffer.visibleSats.BeiDou.push(null);
+    historyBuffer.totalVisible.push(null);
+  }
+  
+  // Trim
+  for (const key of Object.keys(historyBuffer)) {
+    if (Array.isArray(historyBuffer[key])) {
+      while (historyBuffer[key].length > HISTORY_MAX) historyBuffer[key].shift();
+    } else {
+      for (const sub of Object.keys(historyBuffer[key])) {
+        while (historyBuffer[key][sub].length > HISTORY_MAX) historyBuffer[key][sub].shift();
+      }
+    }
+  }
+}
+
+app.get('/api/history', (_req, res) => {
+  res.json({
+    ok: true,
+    timestamps: historyBuffer.timestamps,
+    uplink: historyBuffer.uplink,
+    gnss: historyBuffer.gnss,
+    wifi: historyBuffer.wifi,
+    visible_sats: historyBuffer.visibleSats,
+    total_visible: historyBuffer.totalVisible
+  });
+});
+
+// All-constellation TLE skyplot
 app.get('/api/skyplot', async (_req, res) => {
   const now = Date.now();
   if (skyplotCache.data && skyplotCache.expires > now) {
@@ -636,10 +699,17 @@ import json, sys, urllib.request, time
 from skyfield.api import load, Topos, EarthSatellite
 from datetime import datetime, timezone
 
-CACHE_FILE = "/tmp/gps_tles.json"
-TLE_URL = "https://celestrak.org/NORAD/elements/gp.php?GROUP=gps-ops&FORMAT=tle"
+CONSTELLATIONS = {
+    "gps-ops": "GPS",
+    "glo-ops": "GLONASS",
+    "galileo": "Galileo",
+    "beidou": "BeiDou"
+}
 
-def load_tles():
+CACHE_FILE = "/tmp/all_tles.json"
+TLE_BASE = "https://celestrak.org/NORAD/elements/gp.php?GROUP={group}&FORMAT=tle"
+
+def load_all_tles():
     try:
         import os
         if os.path.exists(CACHE_FILE):
@@ -648,48 +718,57 @@ def load_tles():
                 if time.time() - data["ts"] < 3600:
                     return data["tles"]
     except: pass
-    req = urllib.request.Request(TLE_URL, headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(req, timeout=15) as r:
-        body = r.read().decode(errors="replace")
-    lines = body.strip().split("\\n")
-    sats = []
-    for i in range(0, len(lines), 3):
-        if i+2 < len(lines):
-            name = lines[i].strip()
-            l1 = lines[i+1].strip()
-            l2 = lines[i+2].strip()
-            if l1.startswith("1 ") and l2.startswith("2 "):
-                prn = None
-                if "(PRN" in name:
-                    try: prn = int(name.split("(PRN")[1].split(")")[0])
-                    except: pass
-                sats.append((name, l1, l2, prn))
+    all_tles = {}
+    for group, const in CONSTELLATIONS.items():
+        url = TLE_BASE.format(group=group)
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            body = r.read().decode(errors="replace")
+        lines = body.strip().split("\\n")
+        sats = []
+        for i in range(0, len(lines), 3):
+            if i+2 < len(lines):
+                name = lines[i].strip()
+                l1 = lines[i+1].strip()
+                l2 = lines[i+2].strip()
+                if l1.startswith("1 ") and l2.startswith("2 "):
+                    sat_num = None
+                    if "(" in name:
+                        try:
+                            sat_num = int(name.split("(")[-1].split(")")[0].replace("PRN","").strip())
+                        except: pass
+                    sats.append((name, l1, l2, sat_num, const))
+        all_tles[const] = sats
     try:
         with open(CACHE_FILE, "w") as f:
-            json.dump({"ts": time.time(), "tles": sats}, f)
+            json.dump({"ts": time.time(), "tles": all_tles}, f)
     except: pass
-    return sats
+    return all_tles
 
-sats = load_tles()
+all_tles = load_all_tles()
 ts = load.timescale()
 t = ts.from_datetime(datetime.now(timezone.utc))
 station = Topos(latitude_degrees=46.104, longitude_degrees=-64.755, elevation_m=100)
+
 visible = []
-for name, l1, l2, prn in sats:
-    try:
-        sat = EarthSatellite(l1, l2, name, ts)
-        diff = sat - station
-        topocentric = diff.at(t)
-        alt, az, dist = topocentric.altaz()
-        if alt.degrees > 0:
-            visible.append({
-                "prn": prn,
-                "name": name,
-                "azimuth": round(az.degrees, 2),
-                "elevation": round(alt.degrees, 2),
-                "distance_km": round(dist.km, 1)
-            })
-    except: pass
+for const, sats in all_tles.items():
+    for name, l1, l2, sat_num, c in sats:
+        try:
+            sat = EarthSatellite(l1, l2, name, ts)
+            diff = sat - station
+            topocentric = diff.at(t)
+            alt, az, dist = topocentric.altaz()
+            if alt.degrees > 0:
+                visible.append({
+                    "id": sat_num,
+                    "name": name,
+                    "constellation": const,
+                    "azimuth": round(az.degrees, 2),
+                    "elevation": round(alt.degrees, 2),
+                    "distance_km": round(dist.km, 1)
+                })
+        except: pass
+
 visible.sort(key=lambda x: x["elevation"], reverse=True)
 print(json.dumps({
     "ok": True,
@@ -697,7 +776,7 @@ print(json.dumps({
     "station": {"lat": 46.104, "lon": -64.755, "elev": 100},
     "visible": visible,
     "total_visible": len(visible),
-    "constellation": "GPS"
+    "by_constellation": {c: len([v for v in visible if v["constellation"]==c]) for c in CONSTELLATIONS.values()}
 }))
 `]);
     let stdout = '';

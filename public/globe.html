@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GEODNET · 3D Globe View</title>
+<script src="https://unpkg.com/cesium@1.115/Build/Cesium/Cesium.js"></script>
+<link href="https://unpkg.com/cesium@1.115/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+<style>
+  html, body, #cesiumContainer { height: 100%; width: 100%; margin: 0; padding: 0; overflow: hidden; background: #0f172a; }
+  #ui {
+    position: absolute; top: 12px; left: 12px; right: 12px;
+    display: flex; gap: 8px; flex-wrap: wrap; z-index: 1000;
+    pointer-events: none;
+  }
+  #ui > * { pointer-events: auto; }
+  .btn {
+    background: rgba(15,23,42,.9); color: #e2e8f0;
+    border: 1px solid rgba(148,163,184,.3); border-radius: 8px;
+    padding: 8px 14px; font: 500 13px system-ui; cursor: pointer;
+    transition: background .15s, border-color .15s;
+  }
+  .btn:hover { background: rgba(30,41,59,.95); border-color: #38bdf8; }
+  .btn.active { background: #0ea5e9; border-color: #0ea5e9; color: #082f49; }
+  .panel {
+    position: absolute; bottom: 12px; left: 12px; right: 12px;
+    background: rgba(15,23,42,.92); border: 1px solid rgba(148,163,184,.25);
+    border-radius: 12px; padding: 12px 16px; z-index: 1000;
+    display: flex; gap: 16px; flex-wrap: wrap; align-items: center;
+    font: 13px system-ui; color: #e2e8f0; pointer-events: auto;
+  }
+  .stat { display: flex; flex-direction: column; min-width: 90px; }
+  .stat .label { color: #94a3b8; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  .stat .value { font-size: 16px; font-weight: 600; color: #f8fafc; }
+  .stat.gps .value { color: #22c55e; }
+  .stat.glo .value { color: #f59e0b; }
+  .stat.gal .value { color: #8b5cf6; }
+  .stat.bds .value { color: #ef4444; }
+  #legend { position: absolute; bottom: 90px; left: 12px; background: rgba(15,23,42,.9); border: 1px solid rgba(148,163,184,.25); border-radius: 8px; padding: 10px 14px; z-index: 1000; font: 12px system-ui; color: #e2e8f0; display: none; }
+  #legend .row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+  #legend .dot { width: 10px; height: 10px; border-radius: 50%; }
+</style>
+</head>
+<body>
+<div id="cesiumContainer"></div>
+<div id="ui">
+  <button class="btn active" id="view3d" onclick="setView('3d')">3D Globe</button>
+  <button class="btn" id="viewsky" onclick="setView('skyplot')">Polar Skyplot</button>
+  <button class="btn" id="viewhist" onclick="setView('history')">History Charts</button>
+  <button class="btn" id="viewmap" onclick="setView('network')">Network Map</button>
+</div>
+<div id="panel" class="panel">
+  <div class="stat gps"><span class="label">GPS</span><span class="value" id="cGPS">—</span></div>
+  <div class="stat glo"><span class="label">GLONASS</span><span class="value" id="cGLO">—</span></div>
+  <div class="stat gal"><span class="label">Galileo</span><span class="value" id="cGAL">—</span></div>
+  <div class="stat bds"><span class="label">BeiDou</span><span class="value" id="cBDS">—</span></div>
+  <div class="stat"><span class="label">Total Visible</span><span class="value" id="cTOT">—</span></div>
+  <div class="stat"><span class="label">Uplink</span><span class="value" id="vUP">—</span></div>
+  <div class="stat"><span class="label">GNSS Raw</span><span class="value" id="vGNSS">—</span></div>
+  <div class="stat"><span class="label">WiFi</span><span class="value" id="vWIFI">—</span></div>
+</div>
+<div id="legend"></div>
+
+<script>
+const CONSTELLATION_COLORS = {
+  GPS: '#22c55e',
+  GLONASS: '#f59e0b',
+  Galileo: '#8b5cf6',
+  BeiDou: '#ef4444'
+};
+
+let viewer = null;
+let satelliteEntities = null;
+let currentView = '3d';
+let skyplotData = null;
+let telemetryData = null;
+
+async function init() {
+  // Initialize Cesium
+  viewer = new Cesium.Viewer('cesiumContainer', {
+    terrainProvider: Cesium.createWorldTerrain(),
+    baseLayerPicker: false,
+    geocoder: false,
+    homeButton: false,
+    sceneModePicker: false,
+    navigationHelpButton: false,
+    animation: false,
+    timeline: false,
+    fullscreenButton: false,
+    vrButton: false,
+    infoBox: false,
+    selectionIndicator: false,
+    skyAtmosphere: true,
+    skyBox: new Cesium.SkyBox({
+      sources: {
+        positiveX: 'https://unpkg.com/cesium@1.115/Build/Cesium/Assets/Textures/SkyBox/tycho2t3_80_tx.jpg',
+        negativeX: 'https://unpkg.com/cesium@1.115/Build/Cesium/Assets/Textures/SkyBox/tycho2t3_80_mx.jpg',
+        positiveY: 'https://unpkg.com/cesium@1.115/Build/Cesium/Assets/Textures/SkyBox/tycho2t3_80_py.jpg',
+        negativeY: 'https://unpkg.com/cesium@1.115/Build/Cesium/Assets/Textures/SkyBox/tycho2t3_80_my.jpg',
+        positiveZ: 'https://unpkg.com/cesium@1.115/Build/Cesium/Assets/Textures/SkyBox/tycho2t3_80_pz.jpg',
+        negativeZ: 'https://unpkg.com/cesium@1.115/Build/Cesium/Assets/Textures/SkyBox/tycho2t3_80_mz.jpg'
+      }
+    })
+  });
+
+  viewer.scene.globe.enableLighting = true;
+  viewer.camera.setView({
+    destination: Cesium.Cartesian3.fromDegrees(-64.755, 46.104, 1200000),
+    orientation: { heading: 0, pitch: -Math.PI/4, roll: 0 }
+  });
+
+  // Add base station marker
+  viewer.entities.add({
+    name: 'Our Base #1087',
+    position: Cesium.Cartesian3.fromDegrees(-64.755, 46.104, 100),
+    point: { pixelSize: 12, color: Cesium.Color.CYAN, outlineColor: Cesium.Color.BLACK, outlineWidth: 2 },
+    label: { text: '● #1087 MONCTON', font: '14px sans-serif', fillColor: Cesium.Color.CYAN, outlineColor: Cesium.Color.BLACK, outlineWidth: 2, style: Cesium.LabelStyle.FILL_AND_OUTLINE, pixelOffset: new Cesium.Cartesian2(0, -25) }
+  });
+
+  // Add neighbor stations from network API
+  loadNeighbors();
+
+  satelliteEntities = new Cesium.EntityCollection();
+  viewer.entities.add(satelliteEntities);
+
+  await refreshAll();
+  setInterval(refreshAll, 30000); // skyplot refresh
+  setInterval(refreshTelemetry, 4000);
+}
+
+async function loadNeighbors() {
+  try {
+    const res = await fetch('/api/network', { cache: 'no-store' });
+    const data = await res.json();
+    if (data.ok && data.neighbours) {
+      for (const n of data.neighbours) {
+        const color = n.status === 'ONLINE' ? Cesium.Color.LIME :
+                      n.status === 'ACTIVE' ? Cesium.Color.YELLOW : Cesium.Color.RED;
+        viewer.entities.add({
+          name: `GEODNET #${n.station_id}`,
+          position: Cesium.Cartesian3.fromDegrees(n.lng, n.lat, 100),
+          point: { pixelSize: 8, color, outlineColor: Cesium.Color.BLACK, outlineWidth: 1 },
+          label: { text: `#${n.station_id}`, font: '11px sans-serif', fillColor: color, outlineColor: Cesium.Color.BLACK, outlineWidth: 1, style: Cesium.LabelStyle.FILL_AND_OUTLINE, pixelOffset: new Cesium.Cartesian2(0, -20), show: false }
+        });
+      }
+    }
+  } catch (e) { console.warn('neighbors:', e); }
+}
+
+function setView(view) {
+  currentView = view;
+  document.querySelectorAll('#ui .btn').forEach(b => b.classList.toggle('active', b.id === 'view' + view));
+  document.getElementById('legend').style.display = view === '3d' ? 'block' : 'none';
+  if (view === 'skyplot') window.location.href = '/';
+  if (view === 'history') window.location.href = '/history.html';
+  if (view === 'network') window.location.href = '/';
+}
+
+async function refreshAll() {
+  try {
+    const [skyRes, telRes] = await Promise.all([
+      fetch('/api/skyplot', { cache: 'no-store' }),
+      fetch('/api/live-telemetry', { cache: 'no-store' })
+    ]);
+    skyplotData = await skyRes.json();
+    telemetryData = await telRes.json();
+    updateUI();
+    updateSatellites();
+  } catch (e) { console.error('refreshAll:', e); }
+}
+
+async function refreshTelemetry() {
+  try {
+    const res = await fetch('/api/live-telemetry', { cache: 'no-store' });
+    telemetryData = await res.json();
+    updateTelemetryUI();
+  } catch (e) { console.error('telemetry:', e); }
+}
+
+function updateUI() {
+  if (!skyplotData?.ok) return;
+  const counts = skyplotData.by_constellation || {};
+  document.getElementById('cGPS').textContent = counts.GPS ?? 0;
+  document.getElementById('cGLO').textContent = counts.GLONASS ?? 0;
+  document.getElementById('cGAL').textContent = counts.Galileo ?? 0;
+  document.getElementById('cBDS').textContent = counts.BeiDou ?? 0;
+  document.getElementById('cTOT').textContent = skyplotData.total_visible ?? 0;
+  updateTelemetryUI();
+}
+
+function updateTelemetryUI() {
+  if (!telemetryData?.ok) return;
+  const s = telemetryData.stream;
+  if (s) {
+    document.getElementById('vUP').textContent = s.uplink_rate ? s.uplink_rate.toFixed(1) + ' bps' : '—';
+    document.getElementById('vGNSS').textContent = s.gnss_rate ? s.gnss_rate.toFixed(1) + ' bps' : '—';
+    document.getElementById('vWIFI').textContent = s.wifi_strength ? s.wifi_strength + ' dBm' : '—';
+  }
+  document.getElementById('panel').style.borderColor = telemetryData.ok ? 'rgba(34,197,94,.5)' : 'rgba(239,68,68,.5)';
+}
+
+function updateSatellites() {
+  if (!skyplotData?.ok || !skyplotData.visible) return;
+  satelliteEntities.removeAll();
+
+  // Build legend
+  const legend = document.getElementById('legend');
+  const counts = {};
+  for (const v of skyplotData.visible) counts[v.constellation] = (counts[v.constellation] || 0) + 1;
+  legend.innerHTML = '';
+  for (const [const, cnt] of Object.entries(counts)) {
+    const color = CONSTELLATION_COLORS[const] || '#888';
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = `<span class="dot" style="background:${color}"></span><span>${const} (${cnt})</span>`;
+    legend.appendChild(row);
+  }
+
+  // Add satellite entities at their computed positions
+  // SGP4 gives us az/el from ground station - we need to convert to ECEF for Cesium
+  const station = { lat: 46.104, lng: -64.755, elev: 100 };
+  for (const v of skyplotData.visible) {
+    if (!Number.isFinite(v.azimuth) || !Number.isFinite(v.elevation)) continue;
+    const color = Cesium.Color.fromCssColorString(CONSTELLATION_COLORS[v.constellation] || '#888');
+    // Convert az/el to ECEF position at satellite altitude
+    const elRad = Cesium.Math.toRadians(v.elevation);
+    const azRad = Cesium.Math.toRadians(v.azimuth);
+    const range = v.distance_km * 1000;
+    const stationCart = Cesium.Cartesian3.fromDegrees(station.lng, station.lat, station.elev);
+    const east = new Cesium.Cartesian3();
+    const north = new Cesium.Cartesian3();
+    const up = new Cesium.Cartesian3();
+    Cesium.Cartesian3.fromElements(
+      -Math.sin(azRad) * Math.cos(elRad),
+      Math.cos(azRad) * Math.cos(elRad),
+      Math.sin(elRad)
+    );
+    // Use local ENU to ECEF
+    const enuToEcef = Cesium.Transforms.eastNorthUpToFixedFrame(stationCart);
+    const localOffset = new Cesium.Cartesian3(
+      range * Math.cos(elRad) * Math.sin(azRad),  // East
+      range * Math.cos(elRad) * Math.cos(azRad),  // North
+      range * Math.sin(elRad)                     // Up
+    );
+    const satPos = Cesium.Matrix4.multiplyByPoint(enuToEcef, localOffset, new Cesium.Cartesian3());
+
+    satelliteEntities.add({
+      name: `${v.constellation} ${v.id || v.name}`,
+      position: satPos,
+      point: { pixelSize: 8, color, outlineColor: Cesium.Color.WHITE, outlineWidth: 1, heightReference: Cesium.HeightReference.NONE },
+      label: { text: `${v.constellation[0]}${v.id||''}`, font: '10px sans-serif', fillColor: color, outlineColor: Cesium.Color.BLACK, outlineWidth: 1, style: Cesium.LabelStyle.FILL_AND_OUTLINE, pixelOffset: new Cesium.Cartesian2(0, -16), show: false },
+      description: `<b>${v.name}</b><br>Constellation: ${v.constellation}<br>Azimuth: ${v.azimuth.toFixed(1)}°<br>Elevation: ${v.elevation.toFixed(1)}°<br>Distance: ${v.distance_km.toFixed(0)} km`
+    });
+  }
+}
+
+init();
+</script>
+</body>
+</html>
