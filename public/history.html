@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GEODNET · History Charts</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='48' fill='%230ea5e9'/><path d='M30 50 L70 50 M50 30 L50 70' stroke='white' stroke-width='8' stroke-linecap='round'/></svg>" type="image/svg+xml">
 <script src="vendor/plotly-2.35.2.min.js"></script>
 <style>
   :root { --bg:#0f172a; --card:#1e293b; --muted:#94a3b8; --fg:#f8fafc; --gps:#22c55e; --glo:#f59e0b; --gal:#8b5cf6; --bds:#ef4444; --up:#38bdf8; --gnss:#22c55e; --wifi:#f59e0b; }
@@ -57,7 +58,7 @@
   </div>
 
   <div class="grid grid-2">
-    <div class="card"><h2>Uplink & GNSS Raw Rate</h2><div id="chRates" class="chart"></div></div>
+    <div class="card"><h2>Uplink & GNSS Rate</h2><div id="chRates" class="chart"></div></div>
     <div class="card"><h2>WiFi Signal Strength</h2><div id="chWifi" class="chart"></div></div>
   </div>
 
@@ -86,23 +87,25 @@ async function loadHistory() {
 }
 
 function renderAll(d) {
-  const n = d.timestamps.length;
+  const n = d?.timestamps?.length ?? 0;
   if (n === 0) {
     document.querySelectorAll('.chart').forEach(c => c.innerHTML = '<div class="empty">Waiting for data… (polls every 4s)</div>');
     return;
   }
-  const times = d.timestamps.map(fmtTime);
-  const last = i => d[i][d[i].length - 1];
-
-  document.getElementById('hGPS').textContent = last(d.visible_sats.GPS) ?? '—';
-  document.getElementById('hGLO').textContent = last(d.visible_sats.GLONASS) ?? '—';
-  document.getElementById('hGAL').textContent = last(d.visible_sats.Galileo) ?? '—';
-  document.getElementById('hBDS').textContent = last(d.visible_sats.BeiDou) ?? '—';
+  const times = d.timestamps.map(t => new Date(t).toLocaleTimeString());
+  const last = (arr) => arr?.[arr.length - 1];
+  const vs = d.visible_sats || { GPS: [], GLONASS: [], Galileo: [], BeiDou: [] };
+  
+  document.getElementById('hGPS').textContent = last(vs.GPS) ?? '—';
+  document.getElementById('hGLO').textContent = last(vs.GLONASS) ?? '—';
+  document.getElementById('hGAL').textContent = last(vs.Galileo) ?? '—';
+  document.getElementById('hBDS').textContent = last(vs.BeiDou) ?? '—';
   document.getElementById('hTOT').textContent = last(d.total_visible) ?? '—';
   document.getElementById('hUP').textContent = last(d.uplink) ? last(d.uplink).toFixed(1) : '—';
   document.getElementById('hGNSS').textContent = last(d.gnss) ? last(d.gnss).toFixed(1) : '—';
   document.getElementById('hWIFI').textContent = last(d.wifi) ? last(d.wifi).toFixed(1) : '—';
 
+  // times already declared above
   // Rates chart
   Plotly.newPlot('chRates', [
     { x: times, y: d.uplink, name: 'Uplink bps', type: 'scatter', mode: 'lines', line: { color: COLORS.Uplink, width: 2 } },
@@ -116,7 +119,7 @@ function renderAll(d) {
 
   // Constellation counts
   const satTraces = ['GPS','GLONASS','Galileo','BeiDou'].map(c => ({
-    x: times, y: d.visible_sats[c], name: c, type: 'scatter', mode: 'lines',
+    x: times, y: d.visible_sats[c] || [], name: c, type: 'scatter', mode: 'lines',
     line: { color: COLORS[c], width: 2 }, stackgroup: 'sats'
   }));
   Plotly.newPlot('chSats', satTraces, layout('Count', { showlegend: true, legend: { orientation: 'h', y: 1.1 } }));
@@ -136,6 +139,7 @@ function renderAll(d) {
     ...layout(''),
     yaxis: { title: 'Rate (bps)', gridcolor: 'rgba(148,163,184,.14)', tickfont: { color: '#94a3b8' } },
     yaxis2: { title: 'WiFi (dBm)', overlaying: 'y', side: 'right', gridcolor: 'rgba(148,163,184,.05)', tickfont: { color: '#94a3b8' } },
+    font: { color: '#f8fafc', size: 11 },
     legend: { orientation: 'h', y: 1.1 }
   });
 }

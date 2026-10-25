@@ -3,9 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>GEODNET &middot; Local Network GNSS Dashboard</title>
-<!-- Plotly is vendored locally so the dashboard works with NO internet at all.
-     The CDN is kept only as a fallback if the vendored copy is missing. -->
+<title>GEODNET · Base Station Dashboard</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='48' fill='%230ea5e9'/><path d='M30 50 L70 50 M50 30 L50 70' stroke='white' stroke-width='8' stroke-linecap='round'/></svg>" type="image/svg+xml">
 <script src="/vendor/plotly-2.35.2.min.js" charset="utf-8"></script>
 <script>
   if (typeof Plotly === 'undefined') {
@@ -13,615 +12,891 @@
   }
 </script>
 <style>
-  :root{
-    --bg:#0f172a;
-    --panel:#1e293b;
-    --border:#334155;
-    --text:#f8fafc;
-    --muted:#94a3b8;
-    --accent:#38bdf8;
-    --ok:#22c55e;
-    --bad:#ef4444;
-    --gps:#22d3ee;
-    --glonass:#ef4444;
-    --galileo:#10b981;
-    --beidou:#f59e0b;
+  :root {
+    --bg:#0b1220; --panel:#111927; --border:#1e2a3a; --fg:#e8edf5; --muted:#7c8ba8;
+    --accent:#0ea5e9; --ok:#22c55e; --bad:#ef4444; --warn:#f59e0b;
+    --gps:#22c55e; --glo:#f59e0b; --gal:#8b5cf6; --bds:#ef4444;
+    --radius:10px; --shadow:0 4px 16px rgba(0,0,0,.35);
+    --gap:16px; --pad:18px;
   }
   *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
   body{
-    background:var(--bg);color:var(--text);
-    font-family:"Segoe UI",Inter,system-ui,-apple-system,sans-serif;
-    min-height:100vh;padding:24px;
+    margin:0; font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;
+    background:var(--bg); color:var(--fg); min-height:100vh;
   }
-  header{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:20px}
-  h1{font-size:20px;font-weight:600;letter-spacing:.4px}
+  a{color:var(--accent); text-decoration:none}
+  a:hover{text-decoration:underline}
+
+  .app{display:grid; grid-template-rows:auto 1fr auto; min-height:100vh}
+  header{
+    display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+    padding:14px 24px; border-bottom:1px solid var(--border);
+    background:linear-gradient(180deg, rgba(17,25,39,.95), rgba(11,18,32,.85));
+    position:sticky; top:0; z-index:50; backdrop-filter:blur(6px);
+  }
+  h1{font-size:18px; font-weight:700; letter-spacing:.3px; margin:0}
   h1 span{color:var(--accent)}
-  .header-nav{display:flex;gap:8px;margin-left:auto}
-  .header-nav a{text-decoration:none;padding:6px 12px;font-size:12px;background:rgba(30,41,59,.9);color:#e2e8f0;border:1px solid rgba(148,163,184,.3);border-radius:6px;transition:background .15s,border-color .15s}
-  .header-nav a:hover{background:rgba(51,65,85,.95);border-color:#38bdf8}
-  .sub{color:var(--muted);font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace}
-  .grid-metrics{
-    display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
-    gap:14px;margin-bottom:18px;
+  .tabs{display:flex; gap:6px; margin-left:auto; flex-wrap:wrap}
+  .tab{
+    padding:7px 14px; font-size:12px; font-weight:600;
+    background:rgba(30,42,58,.7); color:var(--fg);
+    border:1px solid var(--border); border-radius:8px;
+    cursor:pointer; transition:all .15s ease; white-space:nowrap;
   }
+  .tab:hover{background:rgba(51,65,85,.9); border-color:var(--accent)}
+  .tab.active{background:var(--accent); color:#032038; border-color:var(--accent)}
+
+  main{padding:20px 24px; max-width:1520px; margin:0 auto; width:100%}
+  .view{display:none; animation:fadeIn .15s ease}
+  .view.active{display:block}
+  @keyframes fadeIn{from{opacity:0; transform:translateY(4px)} to{opacity:1; transform:none}}
+
+  .grid{display:grid; gap:var(--gap)}
+  .grid-2{grid-template-columns:repeat(auto-fit,minmax(420px,1fr))}
+  .grid-3{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+  .grid-4{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+
   .card{
-    background:var(--panel);border:1px solid var(--border);border-radius:10px;
-    padding:16px 18px;
+    background:var(--panel); border:1px solid var(--border); border-radius:var(--radius);
+    padding:var(--pad); box-shadow:var(--shadow); position:relative;
   }
-  .card .label{
-    color:var(--muted);font-size:11px;text-transform:uppercase;
-    letter-spacing:1.1px;margin-bottom:8px;
+  .card h2{
+    margin:0 0 14px; font-size:13px; font-weight:600; color:var(--muted);
+    text-transform:uppercase; letter-spacing:.06em;
   }
-  .card .value{font-size:30px;font-weight:600;line-height:1.1}
-  .card .value small{font-size:14px;color:var(--muted);font-weight:400}
-  .status-line{display:flex;align-items:center;gap:10px;font-size:26px;font-weight:600}
-  .dot{width:12px;height:12px;border-radius:50%;background:var(--bad);flex:none}
-  .dot.on{background:var(--ok);animation:pulse 1.8s ease-in-out infinite}
-  @keyframes pulse{
-    0%{box-shadow:0 0 0 0 rgba(34,197,94,.55)}
-    70%{box-shadow:0 0 0 11px rgba(34,197,94,0)}
-    100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}
+  .card .loading{display:flex; align-items:center; justify-content:center; height:180px; color:var(--muted); font-size:13px}
+  .chart{width:100%; height:360px; min-height:280px}
+  .chart-small{width:100%; height:240px; min-height:200px}
+
+  .stat-row{display:flex; gap:12px; flex-wrap:wrap; margin-bottom:var(--gap)}
+  .stat{
+    flex:1; min-width:140px; background:rgba(17,25,39,.7);
+    border:1px solid var(--border); border-radius:8px; padding:12px 16px;
   }
-  .layout{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(255px,1fr);gap:16px;align-items:start}
-  @media (max-width:900px){.layout{grid-template-columns:1fr}}
-  #skyplot{width:100%;height:520px}
-  .sky-note{color:var(--muted);font-size:12px;text-align:center;padding-top:6px}
-  .side{display:flex;flex-direction:column;gap:14px}
-  .const{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid rgba(51,65,85,.55)}
-  .const:last-child{border-bottom:none}
-  .const .name{display:flex;align-items:center;gap:9px;font-size:14px}
-  .swatch{width:11px;height:11px;border-radius:50%;flex:none}
-  .const .count{font-size:19px;font-weight:600;font-family:ui-monospace,Menlo,Consolas,monospace}
-  .hw{font-size:13px;line-height:1.85;font-family:ui-monospace,Menlo,Consolas,monospace}
-  .hw div{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid rgba(51,65,85,.4);padding:3px 0}
-  .hw .k{color:var(--muted)}
-  .hw .v{color:var(--text);text-align:right;word-break:break-all}
-  .err{
-    margin-top:10px;padding:9px 11px;border:1px solid rgba(239,68,68,.45);
-    border-radius:7px;color:#fca5a5;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace;
-    background:rgba(239,68,68,.08);
+  .stat .label{font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; margin-bottom:4px; display:block}
+  .stat .value{font-size:17px; font-weight:700; line-height:1.2}
+  .stat.gps .value{color:var(--gps)}
+  .stat.glo .value{color:var(--glo)}
+  .stat.gal .value{color:var(--gal)}
+  .stat.bds .value{color:var(--bds)}
+  .stat.ok .value{color:var(--ok)}
+  .stat.warn .value{color:var(--warn)}
+  .stat.bad .value{color:var(--bad)}
+
+  .status-line{display:flex; align-items:center; gap:10px; font-size:20px; font-weight:700}
+  .dot{width:12px; height:12px; border-radius:50%; background:var(--bad); flex:none; transition:background .3s}
+  .dot.on{background:var(--ok); animation:pulse 1.8s ease-in-out infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(34,197,94,.55)} 70%{box-shadow:0 0 0 11px rgba(34,197,94,0)} 100%{box-shadow:0 0 0 0 rgba(34,197,94,0)}}
+
+  .sky-note{color:var(--muted); font-size:11px; text-align:center; padding-top:6px}
+
+  .const-row{display:flex; gap:12px; flex-wrap:wrap; margin-top:12px}
+  .const-box{
+    flex:1; min-width:100px; background:rgba(17,25,39,.7);
+    border:1px solid var(--border); border-radius:8px; padding:10px 14px; text-align:center;
   }
-  .hint{color:var(--muted);font-size:11.5px;margin-top:9px;line-height:1.6}
-  footer{color:var(--muted);font-size:11px;margin-top:18px;font-family:ui-monospace,Menlo,Consolas,monospace}
-  /* ---- GEODNET network map ---- */
-  .net-grid{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(240px,1fr);gap:16px;margin-top:16px;align-items:start}
-  @media (max-width:900px){.net-grid{grid-template-columns:1fr}}
-  #netmap{width:100%;height:420px}
-  .net-note{color:var(--muted);font-size:12px;text-align:center;padding-top:6px}
-  .netcard{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid rgba(51,65,85,.5);font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px}
-  .netcard:last-child{border-bottom:none}
-  .netcard .nk{color:var(--muted)}
-  .netcard .nv{text-align:right;word-break:break-all}
-  .netcard .nst{font-size:10px;letter-spacing:1px;padding:2px 7px;border-radius:4px}
-  .nst.on{color:var(--ok);background:rgba(34,197,94,.12)}
-  .nst.act{color:var(--accent);background:rgba(56,189,248,.12)}
-  .nst.off{color:var(--bad);background:rgba(239,68,68,.12)}
-  .net-stats{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
-  .net-stat{flex:1;min-width:90px;text-align:center;padding:8px 6px;border:1px solid var(--border);border-radius:8px}
-  .net-stat .b{font-size:20px;font-weight:600}
-  .net-stat .l{color:var(--muted);font-size:9.5px;text-transform:uppercase;letter-spacing:1px;margin-top:2px}
-  .legend{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;margin-top:8px;font-size:11px;color:var(--muted)}
-  .legend span{display:inline-flex;align-items:center;gap:5px}
-  .lg{width:10px;height:10px;border-radius:50%;display:inline-block}
+  .const-box .name{font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; margin-bottom:2px}
+  .const-box .count{font-size:22px; font-weight:700}
+
+  .net-list{display:flex; flex-direction:column; gap:8px; margin-top:12px}
+  .net-item{
+    display:flex; justify-content:space-between; align-items:center;
+    background:rgba(17,25,39,.7); border:1px solid var(--border);
+    border-radius:8px; padding:10px 14px; font:12px ui-monospace,Menlo,monospace;
+  }
+  .net-name{display:flex; align-items:center; gap:8px}
+  .net-badge{
+    font-size:10px; font-weight:700; padding:2px 8px; border-radius:999px;
+    background:rgba(34,197,94,.15); color:var(--ok);
+  }
+  .net-badge.active{background:rgba(34,197,94,.15); color:var(--ok)}
+  .net-badge.act{background:rgba(245,158,11,.15); color:var(--warn)}
+  .net-badge.off{background:rgba(239,68,68,.15); color:var(--bad)}
+
+  .hw-list{display:grid; grid-template-columns:auto 1fr; gap:8px 14px; margin-top:12px; font-size:13px}
+  .hw-key{color:var(--muted)}
+  .hw-val{font-weight:500}
+
+  footer{
+    padding:12px 24px; border-top:1px solid var(--border);
+    color:var(--muted); font-size:11px;
+    font-family:ui-monospace,Menlo,Consolas,monospace;
+    background:rgba(11,18,32,.6); margin-top:auto;
+  }
+
+  @media (max-width:900px){
+    .grid-2,.grid-3,.grid-4{grid-template-columns:1fr}
+    header{padding:12px 16px}
+    main{padding:16px}
+  }
+
+  @media print{header,.tabs,footer{display:none} main{padding:0} .card{break-inside:avoid}}
 </style>
 </head>
 <body>
+<div class="app">
+  <header>
+    <h1>GEODNET <span>Base Station</span></h1>
+    <nav class="tabs" role="tablist" aria-label="Dashboard views">
+      <button class="tab active" role="tab" data-view="live" aria-selected="true">Live</button>
+      <button class="tab" role="tab" data-view="network" aria-selected="false">Network</button>
+      <button class="tab" role="tab" data-view="history" aria-selected="false">History</button>
+      <button class="tab" role="tab" data-view="3d" aria-selected="false">3D</button>
+    </nav>
+  </header>
 
-<header>
-  <h1>GEODNET <span>GNSS Base Station</span></h1>
-  <nav class="header-nav">
-    <a href="/">Dashboard</a>
-    <a href="/globe.html">3D Globe</a>
-    <a href="/history.html">History</a>
-  </nav>
-  <div class="sub" id="hdr">initialising&hellip;</div>
-</header>
-
-<section class="grid-metrics">
-  <div class="card">
-    <div class="label">System Status</div>
-    <div class="status-line"><span class="dot" id="statusDot"></span><span id="statusText">CONNECTING</span></div>
-  </div>
-  <div class="card">
-    <div class="label">Total Satellites Tracked</div>
-    <div class="value" id="totalSats">&mdash;</div>
-  </div>
-  <div class="card">
-    <div class="label">Average Signal Quality</div>
-    <div class="value" id="avgSnr">&mdash;<small> dB</small></div>
-  </div>
-</section>
-
-<section class="rate-card card" style="margin-bottom:16px">
-  <div class="label" style="margin-bottom:6px">Live Uplink &middot; from the base</div>
-  <div id="rateChart" style="width:100%;height:150px"></div>
-</section>
-
-<div class="layout">
-    <div class="card">
-      <div id="skyplot"></div>
-      <div class="sky-note" id="skyNote">Multi-constellation skyplot from CelesTrak TLEs · centre = 90° elevation · rim = 0° horizon · clockwise N→E→S→W · no SNR (TLEs don't include signal quality)</div>
-    </div>
-
-  <div class="side">
-    <div class="card">
-      <div class="label" style="margin-bottom:10px">Constellations</div>
-      <div class="const">
-        <div class="name"><span class="swatch" style="background:var(--gps)"></span>GPS</div>
-        <div class="count" id="cGPS">0</div>
+  <main>
+    <section class="view active" data-view="live" role="tabpanel" aria-label="Live telemetry">
+      <div class="stat-row">
+        <div class="card" style="flex:1; min-width:220px">
+          <div class="label">System Status</div>
+          <div class="status-line"><span class="dot" id="statusDot"></span><span id="statusText">CONNECTING</span></div>
+        </div>
+        <div class="card stat"><div class="label">Total Visible</div><div class="value ok" id="totSats">—</div></div>
+        <div class="card stat"><div class="label">Uplink</div><div class="value" id="vUp">— bps</div></div>
+        <div class="card stat"><div class="label">GNSS Raw</div><div class="value" id="vGnss">— bps</div></div>
+        <div class="card stat"><div class="label">WiFi</div><div class="value warn" id="vWifi">— dBm</div></div>
+        <div class="card stat"><div class="label">Uptime</div><div class="value" id="vUptime">—</div></div>
       </div>
-      <div class="const">
-        <div class="name"><span class="swatch" style="background:var(--glonass)"></span>GLONASS</div>
-        <div class="count" id="cGLONASS">0</div>
-      </div>
-      <div class="const">
-        <div class="name"><span class="swatch" style="background:var(--galileo)"></span>Galileo</div>
-        <div class="count" id="cGalileo">0</div>
-      </div>
-      <div class="const">
-        <div class="name"><span class="swatch" style="background:var(--beidou)"></span>BeiDou</div>
-        <div class="count" id="cBeiDou">0</div>
-      </div>
-    </div>
 
-    <div class="card">
-      <div class="label" style="margin-bottom:10px">Hardware</div>
-      <div class="hw">
-        <div><span class="k">Serial</span><span class="v" id="hSn">&mdash;</span></div>
-        <div><span class="k">Model</span><span class="v" id="hModel">&mdash;</span></div>
-        <div><span class="k">Firmware</span><span class="v" id="hFw">&mdash;</span></div>
-        <div><span class="k">GNSS</span><span class="v" id="hGnss">&mdash;</span></div>
-        <div><span class="k">Uptime</span><span class="v" id="hUp">&mdash;</span></div>
-        <div><span class="k">Link</span><span class="v" id="hLink">&mdash;</span></div>
-        <div><span class="k">Endpoint</span><span class="v" id="hEp">&mdash;</span></div>
+      <div class="grid grid-2">
+        <div class="card">
+          <h2>Live Uplink &middot; Base Stream</h2>
+          <div class="loading" id="rateLoad">Loading rate chart…</div>
+          <div id="rateChart" class="chart" style="display:none"></div>
+        </div>
+        <div class="card">
+          <h2>Multi-Constellation Skyplot</h2>
+          <div class="loading" id="skyLoad">Loading skyplot…</div>
+          <div id="skyplot" class="chart" style="display:none"></div>
+          <div class="sky-note" id="skyNote">Multi-constellation from CelesTrak TLEs · centre = 90° elevation · rim = horizon · no SNR (TLEs lack signal quality)</div>
+        </div>
       </div>
-      <div class="err" id="errBox" style="display:none"></div>
-      <div class="hint" id="hint">Polling <code>/api/live-telemetry</code> every 4&nbsp;s.</div>
-    </div>
-  </div>
+
+      <div class="const-row" id="constCounts">
+        <div class="const-box gps"><div class="name">GPS</div><div class="count" id="cGPS">—</div></div>
+        <div class="const-box glo"><div class="name">GLONASS</div><div class="count" id="cGLO">—</div></div>
+        <div class="const-box gal"><div class="name">Galileo</div><div class="count" id="cGAL">—</div></div>
+        <div class="const-box bds"><div class="name">BeiDou</div><div class="count" id="cBDS">—</div></div>
+      </div>
+
+      <div class="card" style="margin-top:var(--gap)">
+        <h2>Hardware</h2>
+        <div class="hw-list" id="hwList">
+          <span class="hw-key">Serial</span><span class="hw-val" id="hSn">—</span>
+          <span class="hw-key">Model</span><span class="hw-val" id="hModel">—</span>
+          <span class="hw-key">Firmware</span><span class="hw-val" id="hFw">—</span>
+          <span class="hw-key">GNSS</span><span class="hw-val" id="hGnss">—</span>
+          <span class="hw-key">Link</span><span class="hw-val" id="hLink">—</span>
+          <span class="hw-key">Endpoint</span><span class="hw-val" id="hEp">—</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="view" data-view="network" role="tabpanel" aria-label="Network map">
+      <div class="grid grid-2">
+        <div class="card">
+          <h2>GEODNET Network Coverage</h2>
+          <div class="loading" id="netLoad">Loading network map…</div>
+          <div id="netmap" class="chart" style="display:none"></div>
+        </div>
+        <div class="card">
+          <h2>Station Position</h2>
+          <div class="stat-row" id="netStats">
+            <div class="card stat"><div class="label">Our Station</div><div class="value" id="netSelf">—</div></div>
+            <div class="card stat"><div class="label">Total Stations</div><div class="value" id="netTotal">—</div></div>
+            <div class="card stat"><div class="label">Nearest Neighbor</div><div class="value" id="netNearest">— km</div></div>
+          </div>
+          <div id="netHint" style="margin-top:12px; font-size:12px; color:var(--muted); text-align:center">Loading…</div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:var(--gap)">
+        <h2>Nearest Neighbors</h2>
+        <div class="net-list" id="netList">Loading neighbors…</div>
+      </div>
+
+      <div class="grid grid-4" style="margin-top:var(--gap)">
+        <div class="card stat ok"><div class="label">ACTIVE</div><div class="value" id="nActive">—</div></div>
+        <div class="card stat warn"><div class="label">ONLINE</div><div class="value" id="nOnline">—</div></div>
+        <div class="card stat bad"><div class="label">OFFLINE</div><div class="value" id="nOffline">—</div></div>
+        <div class="card stat"><div class="label">Total</div><div class="value" id="nTotal">—</div></div>
+      </div>
+    </section>
+
+    <section class="view" data-view="history" role="tabpanel" aria-label="History charts">
+      <div class="stat-row" id="histStats">
+        <div class="card stat gps"><div class="label">GPS Visible</div><div class="value" id="hGPS">—</div></div>
+        <div class="card stat glo"><div class="label">GLONASS Visible</div><div class="value" id="hGLO">—</div></div>
+        <div class="card stat gal"><div class="label">Galileo Visible</div><div class="value" id="hGAL">—</div></div>
+        <div class="card stat bds"><div class="label">BeiDou Visible</div><div class="value" id="hBDS">—</div></div>
+        <div class="card stat"><div class="label">Total Visible</div><div class="value" id="hTOT">—</div></div>
+        <div class="card stat"><div class="label">Uplink</div><div class="value" id="hUP">— bps</div></div>
+        <div class="card stat"><div class="label">GNSS Raw</div><div class="value" id="hGNSS">— bps</div></div>
+        <div class="card stat warn"><div class="label">WiFi</div><div class="value" id="hWIFI">— dBm</div></div>
+      </div>
+
+      <div class="grid grid-2">
+        <div class="card">
+          <h2>Uplink & GNSS Rate</h2>
+          <div class="loading" id="hRateLoad">Loading…</div>
+          <div id="hRateChart" class="chart" style="display:none"></div>
+        </div>
+        <div class="card">
+          <h2>WiFi Signal Strength</h2>
+          <div class="loading" id="hWifiLoad">Loading…</div>
+          <div id="hWifiChart" class="chart" style="display:none"></div>
+        </div>
+      </div>
+
+      <div class="grid grid-2">
+        <div class="card">
+          <h2>Visible Satellites by Constellation</h2>
+          <div class="loading" id="hSatsLoad">Loading…</div>
+          <div id="hSatsChart" class="chart" style="display:none"></div>
+        </div>
+        <div class="card">
+          <h2>Total Visible Satellites</h2>
+          <div class="loading" id="hTotLoad">Loading…</div>
+          <div id="hTotChart" class="chart" style="display:none"></div>
+        </div>
+      </div>
+
+      <div class="grid grid-2">
+        <div class="card">
+          <h2>All Rates Combined (4h)</h2>
+          <div class="loading" id="hAllLoad">Loading…</div>
+          <div id="hAllChart" class="chart" style="display:none; height:400px"></div>
+        </div>
+        <div class="card">
+          <h2>Visible by Constellation (stacked)</h2>
+          <div class="loading" id="hStackLoad">Loading…</div>
+          <div id="hStackChart" class="chart" style="display:none; height:400px"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="view" data-view="3d" role="tabpanel" aria-label="3D satellite view">
+      <div class="stat-row" id="d3Stats">
+        <div class="card stat gps"><div class="label">GPS</div><div class="value" id="d3GPS">—</div></div>
+        <div class="card stat glo"><div class="label">GLONASS</div><div class="value" id="d3GLO">—</div></div>
+        <div class="card stat gal"><div class="label">Galileo</div><div class="value" id="d3GAL">—</div></div>
+        <div class="card stat bds"><div class="label">BeiDou</div><div class="value" id="d3BDS">—</div></div>
+        <div class="card stat"><div class="label">Total</div><div class="value" id="d3Tot">—</div></div>
+      </div>
+
+      <div class="card">
+        <h2>3D Satellite Positions (Plotly)</h2>
+        <div class="loading" id="d3Load">Loading 3D scene…</div>
+        <div id="globe3d" class="chart" style="display:none; height:520px"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer id="foot">initialising…</footer>
 </div>
 
-<footer id="foot">&nbsp;</footer>
-
-<!-- GEODNET network map -->
-<section class="net-grid">
-  <div class="card">
-    <div class="label">GEODNET Network &middot; Live Coverage</div>
-    <div id="netmap"></div>
-    <div class="sky-note">
-      <span class="lg" style="background:#38bdf8"></span> our station (ACTIVE) &middot;
-      <span class="lg" style="background:#22c55e"></span> ONLINE &middot;
-      <span class="lg" style="background:#f59e0b"></span> ACTIVE &middot;
-      <span class="lg" style="background:#ef4444"></span> OFFLINE
-    </div>
-  </div>
-  <div class="side">
-    <div class="card">
-      <div class="label" style="margin-bottom:10px">Station &middot; Network Position</div>
-      <div class="net-stats" id="netStats">
-        <div class="net-stat"><div class="b" id="netSelfId">&mdash;</div><div class="l">Our Station</div></div>
-        <div class="net-stat"><div class="b" id="netTotal">&mdash;</div><div class="l">Stations</div></div>
-        <div class="net-stat"><div class="b" id="netNearest">&mdash;</div><div class="l">Nearest km</div></div>
-      </div>
-      <div id="netList" class="netList"></div>
-      <div class="err" id="netErr" style="display:none"></div>
-      <div class="hint" id="netHint">Loading GEODNET coverage&hellip;</div>
-    </div>
-  </div>
-</section>
-
 <script>
-const COLORS = {
-  GPS: '#22d3ee',       // electric cyan
-  GLONASS: '#ef4444',   // crimson red
-  Galileo: '#10b981',   // emerald green
-  BeiDou: '#f59e0b'    // bright amber orange
+// Global unhandled rejection handler to catch actual errors
+window.addEventListener('unhandledrejection', e => {
+  console.error('UNHANDLED REJECTION:', e.reason);
+  e.preventDefault();
+});
+window.addEventListener('error', e => {
+  console.error('GLOBAL ERROR:', e.message, e.error);
+});
+
+/* ===== CONSTANTS & STATE ===== */
+const COLORS = { GPS:'#22c55e', GLONASS:'#f59e0b', Galileo:'#8b5cf6', BeiDou:'#ef4444' };
+const ENDPOINTS = {
+  tele: '/api/live-telemetry',
+  sky: '/api/skyplot',
+  net: '/api/network',
+  hist: '/api/history'
 };
-const REFRESH_MS = 4000;          // spec: every 3-5 seconds
-const MIN_SIZE = 7, MAX_SIZE = 26; // marker pixel diameter range, scaled by SNR
+let teleData = null, skyData = null, netData = null, histData = null;
+let plotlyReady = typeof Plotly !== 'undefined';
+let chartsInitialized = { rate:false, sky:false, net:false, hRate:false, hWifi:false, hSats:false, hTot:false, hAll:false, hStack:false, d3:false };
 
-let plotReady = typeof Plotly !== 'undefined';
+/* ===== HELPERS ===== */
+const $ = (sel, root=document) => root.querySelector(sel);
+const $$ = (sel, root=document) => [...root.querySelectorAll(sel)];
+const fmt = (v, fb='—') => v===null||v===undefined||v==='' ? fb : String(v);
+const num = (v, d=1) => v===null||v===undefined||v==='' ? '—' : Number(v).toFixed(d);
+const nowStr = () => new Date().toLocaleTimeString();
 
-// Live uplink / GNSS-rate history (real data streamed from the base /devStatus).
-const RATE_HISTORY = [];
-const RATE_MAX_POINTS = 60; // ~4 min at 4s cadence
-
-function recordRates(t) {
-  const up = Number(t?.stream?.uplink_rate);
-  const gn = Number(t?.stream?.gnss_rate);
-  const wifi = Number(t?.hardware?.wifi_strength);
-  RATE_HISTORY.push({ t: new Date(), up, gn, wifi });
-  if (RATE_HISTORY.length > RATE_MAX_POINTS) RATE_HISTORY.shift();
-}
-
-function drawRateChart() {
-  if (!plotReady || !RATE_HISTORY.length) return;
-  const times = RATE_HISTORY.map((p) => p.t.toLocaleTimeString());
-  const up = RATE_HISTORY.map((p) => (Number.isFinite(p.up) ? p.up : null));
-  const gn = RATE_HISTORY.map((p) => (Number.isFinite(p.gn) ? p.gn : null));
-  const data = [
-    { x: times, y: up, type: 'scatter', mode: 'lines+markers', name: 'Uplink bps',
-      line: { color: '#38bdf8', width: 2 }, marker: { size: 3, color: '#38bdf8' } },
-    { x: times, y: gn, type: 'scatter', mode: 'lines+markers', name: 'GNSS raw bps',
-      line: { color: '#22c55e', width: 2 }, marker: { size: 3, color: '#22c55e' } },
-  ];
-  const layout = {
-    paper_bgcolor: '#1e293b', plot_bgcolor: '#0f172a',
-    margin: { l: 44, r: 16, t: 12, b: 28 },
-    showlegend: true,
-    legend: { orientation: 'h', x: 0.5, xanchor: 'center', y: 1.12, font: { color: '#f8fafc', size: 10 }, bgcolor: 'rgba(0,0,0,0)' },
-    xaxis: { showgrid: false, tickfont: { color: '#94a3b8', size: 9 }, showticklabels: false },
-    yaxis: { gridcolor: 'rgba(148,163,184,.14)', tickfont: { color: '#94a3b8', size: 9 }, title: { text: 'bps', font: { color: '#94a3b8', size: 9 } } },
-    font: { color: '#f8fafc' },
-  };
-  Plotly.react(document.getElementById('rateChart'), data, layout,
-    { displayModeBar: false, responsive: true });
-}
-
-
-function fmt(v, fallback = '—') {
-  if (v === null || v === undefined || v === '') return fallback;
-  return String(v);
-}
-
-/** Map live SNR (dB) onto a marker pixel diameter. Higher SNR = larger dot. */
-function sizeForSnr(snr) {
-  const s = Number(snr);
-  if (!Number.isFinite(s)) return MIN_SIZE;
-  // ~15 dB is the floor of usability, ~50 dB is excellent. Clamped so a low
-  // SNR still renders at least MIN_SIZE and a high one never exceeds MAX_SIZE.
-  const t = Math.max(0, Math.min(1, (s - 15) / 35));
-  return MIN_SIZE + t * (MAX_SIZE - MIN_SIZE);
-}
-
-function setStatus(online, label) {
-  const dot = document.getElementById('statusDot');
-  const txt = document.getElementById('statusText');
-  if (online) {
-    dot.classList.add('on');
-    txt.textContent = label || 'ONLINE';
-    txt.style.color = 'var(--ok)';
-  } else {
-    dot.classList.remove('on');
-    txt.textContent = label || 'DISCONNECTED';
-    txt.style.color = 'var(--bad)';
-  }
-}
-
-function renderMetrics(t, s) {
-  const summary = t.summary || {};
-  document.getElementById('totalSats').textContent = fmt(summary.total_tracked > 0 ? summary.total_tracked : (s?.total_visible ?? 0), '0');
-  const avg = summary.average_snr;
-  document.getElementById('avgSnr').innerHTML =
-    (avg === null || avg === undefined ? '—' : avg) + '<small> dB</small>';
-
-  // Use skyplot counts when base telemetry has none
-  if (s?.ok && s?.by_constellation) {
-    document.getElementById('cGPS').textContent = s.by_constellation.GPS ?? 0;
-    document.getElementById('cGLONASS').textContent = s.by_constellation.GLONASS ?? 0;
-    document.getElementById('cGalileo').textContent = s.by_constellation.Galileo ?? 0;
-    document.getElementById('cBeiDou').textContent = s.by_constellation.BeiDou ?? 0;
-  } else {
-    document.getElementById('cGPS').textContent = summary.gps ?? 0;
-    document.getElementById('cGLONASS').textContent = summary.glonass ?? 0;
-    document.getElementById('cGalileo').textContent = summary.galileo ?? 0;
-    document.getElementById('cBeiDou').textContent = summary.beidou ?? 0;
-  }
-
-  const h = t.hardware || {};
-  document.getElementById('hSn').textContent = fmt(h.serial_number);
-  document.getElementById('hModel').textContent = fmt(h.model);
-  document.getElementById('hFw').textContent = fmt(h.software_version);
-  document.getElementById('hGnss').textContent = fmt(h.gnss_receiver || h.gnss_band);
-  document.getElementById('hUp').textContent = fmt(h.uptime);
-  document.getElementById('hLink').textContent = fmt(h.status_raw);
-  document.getElementById('hEp').textContent = fmt(t.source_endpoint);
-
-  const box = document.getElementById('errBox');
-  if (!t.ok && t.error) {
-    box.style.display = 'block';
-    box.textContent = `${t.error}${t.detail ? ' — ' + t.detail : ''}`;
-  } else {
-    box.style.display = 'none';
-  }
-}
-
-/**
- * Skyplot.
- *  - radial axis is INVERTED so the CENTRE is 90 deg elevation and the RIM is 0 deg.
- *  - angular axis runs CLOCKWISE with rotation 90 so 0 deg (North) sits at the top.
- */
-function buildSkyplot(sats) {
-  if (!plotReady) {
-    document.getElementById('skyNote').textContent =
-      'Skyplot unavailable — Plotly.js CDN could not be loaded. Numeric metrics below remain live.';
-    return;
-  }
-
-  const usable = sats.filter(s =>
-    Number.isFinite(Number(s.elevation)) && Number.isFinite(Number(s.azimuth))
-  );
-
-  const traces = {};
-  for (const key of Object.keys(COLORS)) {
-    const group = usable.filter(s => s.constellation === key);
-    traces[key] = {
-      type: 'scatterpolar',
-      mode: 'markers',
-      name: key,
-      r: group.map(s => 90 - Number(s.elevation)),  // 90 - elev -> centre = overhead
-      theta: group.map(s => Number(s.azimuth)),     // clockwise degrees, 0 = North
-      marker: {
-        color: COLORS[key],
-        size: group.map(s => sizeForSnr(s.snr)),
-        sizemode: 'diameter',
-        opacity: 0.92,
-        line: { color: 'rgba(15,23,42,.85)', width: 1 }
-      },
-      text: group.map(s => `ID ${s.id}`),
-      customdata: group.map(s => [s.id, s.constellation, Number(s.elevation), Number(s.azimuth), s.snr]),
-      hovertemplate:
-        '<b>Satellite %{customdata[0]}</b><br>' +
-        'Constellation: %{customdata[1]}<br>' +
-        'Elevation: %{customdata[2]:.1f}&deg;<br>' +
-        'Azimuth: %{customdata[3]:.1f}&deg;<br>' +
-        'SNR: %{customdata[4]} dB' +
-        '<extra></extra>'
-    };
-  }
-
-  const layout = {
-    paper_bgcolor: '#1e293b',
-    plot_bgcolor: '#1e293b',
-    margin: { l: 46, r: 46, t: 34, b: 46 },
-    showlegend: true,
-    legend: {
-      orientation: 'h',
-      x: 0.5, xanchor: 'center',
-      y: -0.08, yanchor: 'top',
-      font: { color: '#f8fafc', size: 11 },
-      bgcolor: 'rgba(0,0,0,0)'
-    },
-    polar: {
-      bgcolor: '#1e293b',
-      radialaxis: {
-        range: [90, 0],            // inverted: 90 at centre, 0 at rim
-        tickvals: [0, 30, 60, 90],
-        ticktext: ['0&deg;', '30&deg;', '60&deg;', '90&deg;'],
-        angle: 90,
-        tickfont: { color: '#94a3b8', size: 10 },
-        gridcolor: 'rgba(148,163,184,.22)',
-        linecolor: 'rgba(148,163,184,.32)',
-        showline: true
-      },
-      angularaxis: {
-        direction: 'clockwise',
-        rotation: 90,              // 0 deg (North) at the top
-        tickvals: [0, 90, 180, 270],
-        ticktext: ['N', 'E', 'S', 'W'],
-        tickfont: { color: '#f8fafc', size: 13, family: 'Segoe UI' },
-        gridcolor: 'rgba(148,163,184,.22)',
-        linecolor: 'rgba(148,163,184,.32)'
-      }
-    },
-    font: { color: '#f8fafc' }
-  };
-
-  const data = Object.values(traces);
-
-  // Update constellation counts
-  const counts = { GPS: 0, GLONASS: 0, Galileo: 0, BeiDou: 0 };
-  for (const key of Object.keys(COLORS)) {
-    const group = usable.filter(s => s.constellation === key);
-    counts[key] = group.length;
-  }
-  document.getElementById('cGPS').textContent = counts.GPS;
-  document.getElementById('cGLONASS').textContent = counts.GLONASS;
-  document.getElementById('cGalileo').textContent = counts.Galileo;
-  document.getElementById('cBeiDou').textContent = counts.BeiDou;
-
-  const el = document.getElementById('skyplot');
-
-  const config = { displayModeBar: false, responsive: true };
-
-  if (plotReady && el.data) {
-    // Seamless animated transition between ticks - no page reload, no flicker.
-    // Plotly.animate() takes the ELEMENT (not a wrapper object) plus the new
-    // data/layout; passing an object here throws "failed to create a plot
-    // before animating it" and leaves the skyplot empty.
-    Plotly.animate(el, data, layout, {
-      ...config,
-      frame: { duration: 700, redraw: true },
-      transition: { duration: 500, easing: 'cubic-in-out' },
-    }).catch(() => {
-      // Fall back to a hard redraw if the animation cannot run.
-      Plotly.react(el, data, layout, config);
-    });
-  } else {
-    Plotly.react(el, data, layout, config);
-  }
-}
-
-async function tick() {
-  try {
-    const [teleRes, skyRes] = await Promise.all([
-      fetch('/api/live-telemetry', { cache: 'no-store' }),
-      fetch('/api/skyplot', { cache: 'no-store' })
-    ]);
-    const t = await teleRes.json();
-    const s = await skyRes.json();
-    const now = new Date().toLocaleTimeString();
-
-    renderMetrics(t, s);
-    recordRates(t);
-    drawRateChart();
-
-    if (t.ok) {
-      setStatus(true, 'ONLINE');
-      document.getElementById('hdr').textContent =
-        `miner ${t.source_endpoint || ''} · ${now}`;
-      document.getElementById('foot').textContent =
-        `last update ${now} · total tracked ${t.summary.total_tracked || (s?.total_visible ?? 0)} · refresh every ${REFRESH_MS / 1000}s`;
-    } else {
-      setStatus(false, 'DISCONNECTED');
-      document.getElementById('hdr').textContent = `miner offline · ${now}`;
-      document.getElementById('foot').textContent =
-        `last attempt ${now} · ${t.error || 'unreachable'}`;
+/* ===== TAB HANDLING ===== */
+function showView(name){
+  $$('.view').forEach(v=>v.classList.toggle('active', v.dataset.view===name));
+  $$('.tab').forEach(t=>t.classList.toggle('active', t.dataset.view===name));
+  $$('.tab').forEach(t=>t.setAttribute('aria-selected', t.dataset.view===name));
+  if(name==='live' && !chartsInitialized.rate) initRateChart();
+  if(name==='live' && !chartsInitialized.sky) initSkyplot();
+  if(name==='network' && !chartsInitialized.net) initNetMap();
+  if(name==='history' && !chartsInitialized.hRate) initHistoryCharts();
+  if(name==='3d' && !chartsInitialized.d3) init3DScene();
+  // Only resize charts that are visible and have been initialized
+  $$('.view.active .chart').forEach(c=>{
+    if (c.style.display !== 'none' && c.offsetParent !== null) {
+      try{Plotly.Plots.resize(c)}catch(e){}
     }
+  });
+}
+$$('.tab').forEach(t=>t.addEventListener('click',()=>showView(t.dataset.view)));
 
-    // Merge real skyplot (TLE-based, all constellations) with base telemetry if available
-    const skySats = (s.ok && s.visible) ? s.visible.map(v => ({
-      id: v.prn,
-      constellation: v.constellation || 'GPS',
-      elevation: v.elevation,
-      azimuth: v.azimuth,
-      snr: null  // no SNR from TLEs
-    })) : [];
-    const baseSats = t.satellites_detail || [];
-    drawSkyplot([...skySats, ...baseSats]);
-  } catch (err) {
-    setStatus(false, 'DISCONNECTED');
-    document.getElementById('errBox').style.display = 'block';
-    document.getElementById('errBox').textContent = 'dashboard_error — ' + (err?.message || err);
+/* ===== LOADING STATE ===== */
+function setLoading(view, done){
+  const load = $(`#${view}Load`);
+  const idMap = {rate:'rateChart', sky:'skyplot', net:'netmap', hRate:'hRateChart', hWifi:'hWifiChart', hSats:'hSatsChart', hTot:'hTotChart', hAll:'hAllChart', hStack:'hStackChart', d3:'globe3d'};
+  const chart = $(`#${idMap[view] || view}Chart`);
+  if(load) load.style.display = done ? 'none' : 'flex';
+  if(chart) chart.style.display = done ? 'block' : 'none';
+}
+
+/* ===== FOOTER ===== */
+function updateFooter(t, s){
+  const tracked = (t?.summary?.total_tracked ?? 0) > 0 ? t.summary.total_tracked : (s?.total_visible ?? 0);
+  $('#foot').textContent = `last update ${nowStr()} · total tracked ${tracked} · telemetry 4s · skyplot 30s · network 60s`;
+}
+
+/* ===== RENDER: LIVE ===== */
+function renderLive(t, s){
+  if(!t) return;
+  const ok = t.ok && t.status==='ONLINE';
+  $('#statusDot').classList.toggle('on', ok);
+  $('#statusText').textContent = ok ? 'ONLINE' : 'DISCONNECTED';
+  $('#vUp').textContent = num(t.stream?.uplink_rate) + ' bps';
+  $('#vGnss').textContent = num(t.stream?.gnss_rate) + ' bps';
+  $('#vWifi').textContent = fmt(t.stream?.wifi_strength) + ' dBm';
+  $('#vUptime').textContent = fmt(t.hardware?.uptime);
+  $('#hSn').textContent = fmt(t.hardware?.serial_number);
+  $('#hModel').textContent = fmt(t.hardware?.model);
+  $('#hFw').textContent = fmt(t.hardware?.software_version);
+  $('#hGnss').textContent = fmt(t.hardware?.gnss_receiver || t.hardware?.gnss_band);
+  $('#hLink').textContent = fmt(t.hardware?.status_raw);
+  $('#hEp').textContent = fmt(t.source_endpoint);
+
+  if(s?.ok && s.by_constellation){
+    const c = s.by_constellation;
+    $('#totSats').textContent = s.total_visible;
+    $('#cGPS').textContent = c.GPS??0;
+    $('#cGLO').textContent = c.GLONASS??0;
+    $('#cGAL').textContent = c.Galileo??0;
+    $('#cBDS').textContent = c.BeiDou??0;
   }
 }
 
-function drawSkyplot(sats) {
-  try {
-    buildSkyplot(sats);
-  } catch (err) {
-    document.getElementById('skyNote').textContent =
-      'Skyplot render error: ' + (err?.message || err);
-  }
+/* ===== RATE CHART ===== */
+const RATE_HIST = [], RATE_MAX = 60;
+function recordRates(t){
+  if(!t?.stream) return;
+  const now = Date.now();
+  RATE_HIST.push({t:now, up:t.stream.uplink_rate??null, gn:t.stream.gnss_rate??null, wf:t.stream.wifi_strength??null});
+  while(RATE_HIST.length>RATE_MAX) RATE_HIST.shift();
+}
+function initRateChart(){
+  chartsInitialized.rate = true;
+  Plotly.newPlot('rateChart', [
+    {name:'Uplink bps', y:[], x:[], mode:'lines+markers', line:{color:'#38bdf8',width:2}, marker:{size:3}},
+    {name:'GNSS bps', y:[], x:[], mode:'lines+markers', line:{color:'#22c55e',width:2}, marker:{size:3}}
+  ], rateLayout());
+  setLoading('rate', true);
+}
+function rateLayout(){
+  return {paper_bgcolor:'#111927', plot_bgcolor:'#0b1220', margin:{l:44,r:16,t:12,b:28},
+    xaxis:{showgrid:false, tickfont:{color:'#7c8ba8',size:9}, showticklabels:false},
+    yaxis:{gridcolor:'rgba(124,139,168,.14)', tickfont:{color:'#7c8ba8',size:9}, title:{text:'bps',font:{color:'#7c8ba8',size:9}}},
+    legend:{orientation:'h',x:0.5,xanchor:'center',y:1.12,font:{color:'#e8edf5',size:10},bgcolor:'rgba(0,0,0,0)'},
+    font:{color:'#e8edf5'}, showlegend:true };
+}
+function drawRateChart(){
+  if(!chartsInitialized.rate) return;
+  const times = RATE_HIST.map(p=>new Date(p.t).toLocaleTimeString());
+  const up = RATE_HIST.map(p=>(p.up===null?null:p.up));
+  const gn = RATE_HIST.map(p=>(p.gn===null?null:p.gn));
+  Plotly.react('rateChart', [
+    {x:times,y:up,type:'scatter',mode:'lines+markers',name:'Uplink bps',line:{color:'#38bdf8',width:2},marker:{size:3,color:'#38bdf8'}},
+    {x:times,y:gn,type:'scatter',mode:'lines+markers',name:'GNSS bps',line:{color:'#22c55e',width:2},marker:{size:3,color:'#22c55e'}}
+  ], rateLayout(), {displayModeBar:false,responsive:true});
 }
 
-// Kick off the refresh loop.
-tick();
-setInterval(tick, REFRESH_MS);
-
-/* ================= GEODNET NETWORK MAP ================= */
-const NET_REFRESH_MS = 60000; // coverage list is TTL-cached server-side (10 min)
-const ak = (lat, lng) => ({ x: lng, y: lat }); // equirectangular approx for local map
-
-function statusClass(status) {
-  const s = String(status || '').toUpperCase();
-  if (s === 'ONLINE') return 'nst on';
-  if (s === 'ACTIVE') return 'nst act';
-  return 'nst off';
+/* ===== SKYPLOT ===== */
+function initSkyplot(){
+  chartsInitialized.sky = true;
+  const sats = skyData?.visible || [];
+  const usable = sats.filter(s=>Number.isFinite(s.elevation)&&Number.isFinite(s.azimuth));
+  const traces = buildSkyTraces(usable);
+  const layout = skyLayout();
+  Plotly.newPlot('skyplot', traces, layout, {displayModeBar:false,responsive:true});
+  setLoading('sky', true);
+}
+function buildSkyTraces(sats){
+  const traces = {};
+  for(const key of ['GPS','GLONASS','Galileo','BeiDou']){
+    const g = sats.filter(s=>s.constellation===key);
+    traces[key] = {type:'scatterpolar', mode:'markers', name:key,
+      r:g.map(s=>90-Number(s.elevation)), theta:g.map(s=>Number(s.azimuth)),
+      marker:{color:COLORS[key],size:10,opacity:0.9,line:{color:'rgba(11,18,32,.6)',width:1}},
+      text:g.map(s=>`${s.constellation} ${s.prn}\nEl: ${s.elevation}°\nAz: ${s.azimuth}°`), hoverinfo:'text'};
+  }
+  return Object.values(traces);
+}
+function skyLayout(){
+  return {paper_bgcolor:'#111927', plot_bgcolor:'#0b1220', margin:{l:46,r:46,t:12,b:46},
+    polar:{radialaxis:{range:[90,0],tickvals:[0,30,60,90],ticktext:['0°','30°','60°','90°'],angle:90,
+      tickfont:{color:'#7c8ba8',size:10},gridcolor:'rgba(124,139,168,.22)',linecolor:'rgba(124,139,168,.32)',showline:true},
+      angularaxis:{direction:'clockwise',rotation:90,tickvals:[0,90,180,270],ticktext:['N','E','S','W'],
+      tickfont:{color:'#e8edf5',size:13},gridcolor:'rgba(124,139,168,.22)',linecolor:'rgba(124,139,168,.32)'}},
+    font:{color:'#e8edf5'}, showlegend:true,
+    legend:{orientation:'h',x:0.5,xanchor:'center',y:-0.08,font:{color:'#e8edf5',size:11},bgcolor:'rgba(0,0,0,0)'} };
+}
+function drawSkyplot(){
+  if(!chartsInitialized.sky) return;
+  const usable = (skyData?.visible||[]).filter(s=>Number.isFinite(s.elevation)&&Number.isFinite(s.azimuth));
+  Plotly.react('skyplot', buildSkyTraces(usable), skyLayout(), {displayModeBar:false,responsive:true});
 }
 
-function renderNetworkMap(d) {
-  if (!plotReady) {
-    document.getElementById('netErr').textContent =
-      'Network map unavailable — Plotly.js could not be loaded.';
-    document.getElementById('netErr').style.display = 'block';
-    return;
+/* ===== NETWORK MAP ===== */
+function initNetMap(){
+  chartsInitialized.net = true;
+  Plotly.newPlot('netmap', [], netLayout(), {displayModeBar:false,responsive:true});
+  setLoading('net', true);
+}
+function netLayout(){
+  return {paper_bgcolor:'#111927',plot_bgcolor:'#0b1220',margin:{l:40,r:40,t:44,b:40},
+    xaxis:{title:'',showgrid:true,gridcolor:'rgba(124,139,168,.14)',zeroline:false,autorange:true},
+    yaxis:{title:'',showgrid:true,gridcolor:'rgba(124,139,168,.14)',zeroline:false,autorange:true,scaleanchor:'x',scaleratio:1},
+    font:{color:'#e8edf5'},showlegend:true,
+    legend:{orientation:'h',x:0.5,xanchor:'center',y:-0.12,font:{color:'#e8edf5',size:11},bgcolor:'rgba(0,0,0,0)'}};
+}
+// Simple Delaunay triangulation for 2D points
+function delaunayTriangulation(points) {
+  // Bowyer-Watson algorithm for Delaunay triangulation
+  if (points.length < 3) return [];
+  
+  // Super-triangle that encompasses all points
+  const minX = Math.min(...points.map(p => p.x));
+  const maxX = Math.max(...points.map(p => p.x));
+  const minY = Math.min(...points.map(p => p.y));
+  const maxY = Math.max(...points.map(p => p.y));
+  const dx = maxX - minX;
+  const dy = maxY - minY;
+  const dmax = Math.max(dx, dy);
+  const midX = (minX + maxX) / 2;
+  const midY = (minY + maxY) / 2;
+  
+  const superTriangle = [
+    { x: midX - 20 * dmax, y: midY - dmax, isSuper: true },
+    { x: midX, y: midY + 20 * dmax, isSuper: true },
+    { x: midX + 20 * dmax, y: midY - dmax, isSuper: true }
+  ];
+  
+  let triangles = [{ vertices: superTriangle }];
+  
+  function circumcircle(tri, p) {
+    const [a, b, c] = tri.vertices;
+    const ax = a.x - p.x, ay = a.y - p.y;
+    const bx = b.x - p.x, by = b.y - p.y;
+    const cx = c.x - p.x, cy = c.y - p.y;
+    const det = (ax * ax + ay * ay) * (bx * cy - cx * by)
+              - (bx * bx + by * by) * (ax * cy - cx * ay)
+              + (cx * cx + cy * cy) * (ax * by - bx * ay);
+    return det > 0;
   }
+  
+  for (const point of points) {
+    const badTriangles = [];
+    for (const tri of triangles) {
+      if (circumcircle(tri, point)) {
+        badTriangles.push(tri);
+      }
+    }
+    
+    const polygon = [];
+    for (const tri of badTriangles) {
+      for (let i = 0; i < 3; i++) {
+        const edge = [tri.vertices[i], tri.vertices[(i + 1) % 3]];
+        let shared = false;
+        for (const other of badTriangles) {
+          if (other === tri) continue;
+          for (let j = 0; j < 3; j++) {
+            const otherEdge = [other.vertices[j], other.vertices[(j + 1) % 3]];
+            if ((edge[0] === otherEdge[1] && edge[1] === otherEdge[0]) ||
+                (edge[0] === otherEdge[0] && edge[1] === otherEdge[1])) {
+              shared = true;
+              break;
+            }
+          }
+          if (shared) break;
+        }
+        if (!shared) polygon.push(edge);
+      }
+    }
+    
+    triangles = triangles.filter(t => !badTriangles.includes(t));
+    
+    for (const edge of polygon) {
+      triangles.push({ vertices: [edge[0], edge[1], point] });
+    }
+  }
+  
+  // Remove triangles that use super-triangle vertices
+  triangles = triangles.filter(tri =>
+    tri.vertices.every(v => !v.isSuper)
+  );
+  
+  // Extract edges
+  const edges = new Set();
+  for (const tri of triangles) {
+    for (let i = 0; i < 3; i++) {
+      const a = tri.vertices[i];
+      const b = tri.vertices[(i + 1) % 3];
+      const key = a.x < b.x ? `${a.x},${a.y}-${b.x},${b.y}` : `${b.x},${b.y}-${a.x},${a.y}`;
+      edges.add(key);
+    }
+  }
+  
+  return Array.from(edges).map(key => {
+    const [aStr, bStr] = key.split('-');
+    const [ax, ay] = aStr.split(',').map(Number);
+    const [bx, by] = bStr.split(',').map(Number);
+    return { x: [ax, bx], y: [ay, by] };
+  });
+}
+
+// Generate circle points for RTK range buffers
+function circlePoints(centerLat, centerLng, radiusKm, numPoints = 64) {
+  const R = 6371; // Earth radius in km
+  const latRad = centerLat * Math.PI / 180;
+  const lngRad = centerLng * Math.PI / 180;
+  const angularRadius = radiusKm / R;
+  
+  const points = [];
+  for (let i = 0; i <= numPoints; i++) {
+    const bearing = (i / numPoints) * 2 * Math.PI;
+    const lat = Math.asin(
+      Math.sin(latRad) * Math.cos(angularRadius) +
+      Math.cos(latRad) * Math.sin(angularRadius) * Math.cos(bearing)
+    );
+    const lng = lngRad + Math.atan2(
+      Math.sin(bearing) * Math.sin(angularRadius) * Math.cos(latRad),
+      Math.cos(angularRadius) - Math.sin(latRad) * Math.sin(lat)
+    );
+    points.push({ lat: lat * 180 / Math.PI, lng: lng * 180 / Math.PI });
+  }
+  return points;
+}
+
+function drawNetMap(d){
+  if(!d?.ok || !chartsInitialized.net) return;
   const self = d.self;
-  const ours = self
-    ? [{ x: self.lng, y: self.lat, text: `Our station #${self.station_id}` }]
-    : [];
-  const nbrs = (d.neighbours || []).map((n) => ({ x: n.lng, y: n.lat, ...n }));
-
-  // Connection lines from our base to each neighbor
-  const connLines = [];
+  const nbrs = d.neighbours || [];
+  const traces = [];
+  
+  try {
+  
+  // RTK Range Buffers (20km and 40km circles around our station)
+  if (self) {
+    const circle20 = circlePoints(self.lat, self.lng, 20);
+    const circle40 = circlePoints(self.lat, self.lng, 40);
+    
+    traces.push({
+      type: 'scatter',
+      mode: 'lines',
+      x: circle20.map(p => p.lng),
+      y: circle20.map(p => p.lat),
+      line: { color: 'rgba(34,197,94,0.4)', width: 2, dash: 'dash' },
+      name: '20 km RTK Core Fix',
+      showlegend: true,
+      hoverinfo: 'name',
+      legendgroup: 'rtk'
+    });
+    traces.push({
+      type: 'scatter',
+      mode: 'lines',
+      x: circle40.map(p => p.lng),
+      y: circle40.map(p => p.lat),
+      line: { color: 'rgba(245,158,11,0.3)', width: 2, dash: 'dot' },
+      name: '40 km RTK Extended Fix',
+      showlegend: true,
+      hoverinfo: 'name',
+      legendgroup: 'rtk'
+    });
+  }
+  
+  // Delaunay triangulation between neighbor stations (and our station)
+  if (self && nbrs.length >= 2) {
+    try {
+      const allPoints = [
+        { x: self.lng, y: self.lat, id: 'self' },
+        ...nbrs.map(n => ({ x: n.lng, y: n.lat, id: n.station_id }))
+      ];
+      const edges = delaunayTriangulation(allPoints);
+      for (const edge of edges) {
+        traces.push({
+          type: 'scatter',
+          mode: 'lines',
+          x: edge.x,
+          y: edge.y,
+          line: { color: 'rgba(56,189,248,0.25)', width: 1 },
+          showlegend: false,
+          hoverinfo: 'skip',
+          legendgroup: 'mesh'
+        });
+      }
+    } catch(e) { console.error('Delaunay triangulation error:', e); }
+  }
+  
+  // Connection lines from our station to neighbors
   if (self && nbrs.length) {
     for (const n of nbrs) {
-      connLines.push(
-        { type: 'scatter', mode: 'lines', showlegend: false, hoverinfo: 'skip',
-          x: [self.lng, n.lng], y: [self.lat, n.lat],
-          line: { color: 'rgba(56,189,248,0.35)', width: 1, dash: 'dot' }
-        }
-      );
+      traces.push({
+        type: 'scatter',
+        mode: 'lines',
+        x: [self.lng, n.lng],
+        y: [self.lat, n.lat],
+        line: { color: 'rgba(56,189,248,.35)', width: 1, dash: 'dot' },
+        showlegend: false,
+        hoverinfo: 'skip'
+      });
     }
   }
-
+  
+  // Our station marker
   const traceSelf = {
-    type: 'scatter', mode: 'markers', name: 'Our station',
-    x: ours.map((p) => p.x), y: ours.map((p) => p.y),
+    type: 'scatter',
+    mode: 'markers',
+    name: 'Our station',
+    x: self ? [self.lng] : [],
+    y: self ? [self.lat] : [],
     marker: { color: '#38bdf8', size: 18, symbol: 'star-diamond', line: { color: '#fff', width: 2 } },
-    text: ours.map((p) => p.text), hoverinfo: 'text',
-  };
-  const traceNbr = {
-    type: 'scatter', mode: 'markers', name: 'Neighbours',
-    x: nbrs.map((p) => p.x), y: nbrs.map((p) => p.y),
-    marker: {
-      color: nbrs.map((p) =>
-        String(p.status).toUpperCase() === 'ONLINE' ? '#22c55e'
-        : String(p.status).toUpperCase() === 'ACTIVE' ? '#f59e0b' : '#ef4444'),
-      size: 11, opacity: 0.95, line: { color: 'rgba(15,23,42,.6)', width: 1 },
-    },
-    text: nbrs.map((p) => `Station #${p.station_id}<br>${p.distance_km} km away · ${String(p.status).toUpperCase()}`),
+    text: self ? [`Our station #${self.station_id}`] : [],
     hoverinfo: 'text',
+    legendgroup: 'stations'
   };
-  const layout = {
-    title: { text: self ? `Our base #${self.station_id} surrounded by the live GEODNET network` : 'GEODNET network coverage', font: { color: '#f8fafc', size: 13 } },
-    paper_bgcolor: '#1e293b', plot_bgcolor: '#0f172a',
-    xaxis: { title: '', showgrid: true, gridcolor: 'rgba(148,163,184,.14)', zeroline: false, autorange: true },
-    yaxis: { title: '', showgrid: true, gridcolor: 'rgba(148,163,184,.14)', zeroline: false, autorange: true, scaleanchor: 'x', scaleratio: 1 },
-    margin: { l: 40, r: 40, t: 44, b: 40 },
-    showlegend: true,
-    legend: { orientation: 'h', x: 0.5, xanchor: 'center', y: -0.12, yanchor: 'top', font: { color: '#f8fafc', size: 11 }, bgcolor: 'rgba(0,0,0,0)' },
-    font: { color: '#f8fafc' },
+  
+  // Neighbor stations
+  const traceNbr = {
+    type: 'scatter',
+    mode: 'markers',
+    name: 'Neighbours',
+    x: nbrs.map(p => p.lng),
+    y: nbrs.map(p => p.lat),
+    marker: {
+      color: nbrs.map(p => p.status === 'ONLINE' ? '#22c55e' : p.status === 'ACTIVE' ? '#f59e0b' : '#ef4444'),
+      size: 11,
+      opacity: 0.95,
+      line: { color: 'rgba(11,18,32,.6)', width: 1 }
+    },
+    text: nbrs.map(p => `Station #${p.station_id}<br>${p.distance_km} km · ${p.status.toUpperCase()}`),
+    hoverinfo: 'text',
+    legendgroup: 'stations'
   };
-  const data = [...connLines];
-  if (ours.length) data.push(traceSelf);
-  if (nbrs.length) data.push(traceNbr);
-  const el = document.getElementById('netmap');
-  Plotly.react(el, data, layout, { displayModeBar: false, responsive: true });
+  
+  Plotly.react('netmap', [...traces, traceSelf, traceNbr], netLayout(), {displayModeBar: false, responsive: true})
+    .catch(e => console.error('drawNetMap Plotly error:', e));
+  setLoading('net', true);
+} catch(e) { console.error('drawNetMap error:', e); }
 }
-
-function renderNetworkMetrics(d) {
-  document.getElementById('netSelfId').textContent = d.self ? `#${d.self.station_id}` : '—';
-  document.getElementById('netTotal').textContent = d.total_stations || '—';
-  const nearest = d.neighbours && d.neighbours[0] ? d.neighbours[0].distance_km : null;
-  document.getElementById('netNearest').textContent = nearest !== null ? `${nearest} km` : '—';
-
-  const list = document.getElementById('netList');
-  const bd = d.status_breakdown || {};
+function drawNetMetrics(d){
+  if(!d?.ok) return;
+  const self = d.self;
+  $('#netSelf').textContent = self ? `#${self.station_id} (${self.status})` : '—';
+  $('#netTotal').textContent = d.total_stations;
+  const nearest = d.neighbours?.[0]?.distance_km;
+  $('#netNearest').textContent = nearest!==undefined ? nearest+' km' : '—';
+  const netBd2 = d.status_breakdown||{};
+  $('#nActive').textContent = netBd2.ACTIVE||0;
+  $('#nOnline').textContent = netBd2.ONLINE||0;
+  $('#nOffline').textContent = netBd2.OFFLINE||0;
+  $('#nTotal').textContent = (netBd2.ACTIVE||0)+(netBd2.ONLINE||0)+(netBd2.OFFLINE||0);
+  const list = $('#netList');
   list.innerHTML = '';
-  const rows = (d.neighbours || []).slice(0, 6);
-  if (!rows.length) {
-    list.innerHTML = '<div class="netcard"><span class="nk">No neighbours within range</span></div>';
+  for(const n of (d.neighbours||[]).slice(0,8)){
+    const s = String(n.status).toUpperCase();
+    const cls = s==='ONLINE'?'active':s==='ACTIVE'?'act':'off';
+    const el = document.createElement('div');
+    el.className = 'net-item';
+    el.innerHTML = `<span class="net-name">#${n.station_id} · ${n.distance_km} km</span><span class="net-badge ${cls}">${s}</span>`;
+    list.appendChild(el);
   }
-  for (const n of rows) {
-    const div = document.createElement('div');
-    div.className = 'netcard';
-    div.innerHTML =
-      `<span class="nk">#${n.station_id} · ${n.distance_km} km</span>` +
-      `<span class="nv ${statusClass(n.status)}">${String(n.status).toUpperCase()}</span>`;
-    list.appendChild(div);
-  }
-  if (bd.ACTIVE || bd.ONLINE || bd.OFFLINE) {
-    const tot = (bd.ACTIVE || 0) + (bd.ONLINE || 0) + (bd.OFFLINE || 0);
-    document.getElementById('netHint').innerHTML =
-      `Network: <b>${tot}</b> stations · ${bd.ACTIVE || 0} ACTIVE, ${bd.ONLINE || 0} ONLINE, ${bd.OFFLINE || 0} OFFLINE.` +
-      ` Polling <code>/api/network</code> (10 min cache).`;
-  } else {
-    document.getElementById('netHint').textContent =
-      `Network polled from /api/network every ${NET_REFRESH_MS / 1000}s.`;
-  }
+    // netBd2 already declared above
+  $('#netHint').innerHTML = `Network: <b>${(netBd2.ACTIVE||0)+(netBd2.ONLINE||0)+(netBd2.OFFLINE||0)}</b> stations · ${netBd2.ACTIVE||0} ACTIVE, ${netBd2.ONLINE||0} ONLINE, ${netBd2.OFFLINE||0} OFFLINE. Polling <code>/api/network</code> (10 min cache).`;
 }
 
-async function netTick() {
-  try {
-    const res = await fetch('/api/network', { cache: 'no-store' });
-    const n = await res.json();
-    if (!n.ok) {
-      document.getElementById('netErr').textContent = 'network_error — ' + (n.error || 'unreachable');
-      document.getElementById('netErr').style.display = 'block';
-      return;
-    }
-    document.getElementById('netErr').style.display = 'none';
-    renderNetworkMap(n);
-    renderNetworkMetrics(n);
-  } catch (err) {
-    document.getElementById('netErr').textContent = 'network_error — ' + (err?.message || err);
-    document.getElementById('netErr').style.display = 'block';
-  }
+/* ===== HISTORY CHARTS ===== */
+function initHistoryCharts(){
+  if(chartsInitialized.hRate) return;
+  chartsInitialized.hRate = chartsInitialized.hWifi = chartsInitialized.hSats = chartsInitialized.hTot = chartsInitialized.hAll = chartsInitialized.hStack = true;
+
+  Plotly.newPlot('hRateChart', [
+    {name:'Uplink',y:[],x:[],type:'scatter',mode:'lines',line:{color:'#38bdf8',width:2}},
+    {name:'GNSS',y:[],x:[],type:'scatter',mode:'lines',line:{color:'#22c55e',width:2}}
+  ], histLayout('Rate (bps)'));
+  Plotly.newPlot('hWifiChart', [
+    {name:'WiFi',y:[],x:[],type:'scatter',mode:'lines',line:{color:'#f59e0b',width:2},fill:'tozeroy',fillcolor:'rgba(245,158,11,.15)'}
+  ], histLayout('dBm'));
+  Plotly.newPlot('hSatsChart', ['GPS','GLONASS','Galileo','BeiDou'].map(c=>({
+    name:c,y:[],x:[],type:'scatter',mode:'lines',line:{color:COLORS[c],width:2},stackgroup:'sats'
+  })), histLayout('Count'));
+  Plotly.newPlot('hTotChart', [{name:'Total',y:[],x:[],type:'scatter',mode:'lines+markers',line:{color:'#e8edf5',width:2},marker:{size:4}}], histLayout('Count'));
+  Plotly.newPlot('hAllChart', [
+    {name:'Uplink',y:[],x:[],type:'scatter',mode:'lines',yaxis:'y',line:{color:'#38bdf8',width:2}},
+    {name:'GNSS',y:[],x:[],type:'scatter',mode:'lines',yaxis:'y',line:{color:'#22c55e',width:2}},
+    {name:'WiFi',y:[],x:[],type:'scatter',mode:'lines',yaxis:'y2',line:{color:'#f59e0b',width:2,dash:'dot'}}
+  ], {paper_bgcolor:'#111927',plot_bgcolor:'#0b1220',margin:{l:50,r:20,t:10,b:40},
+    xaxis:{showgrid:false,tickfont:{color:'#7c8ba8',size:10},tickangle:-30,nticks:12},
+    yaxis:{title:{text:'Rate (bps)',font:{color:'#7c8ba8',size:11}},gridcolor:'rgba(124,139,168,.14)',tickfont:{color:'#7c8ba8',size:10}},
+    yaxis2:{title:{text:'WiFi (dBm)',font:{color:'#7c8ba8',size:11}},overlaying:'y',side:'right',gridcolor:'rgba(124,139,168,.05)',tickfont:{color:'#7c8ba8',size:10}},
+    font:{color:'#e8edf5',size:11},legend:{orientation:'h',y:1.1}});
+  Plotly.newPlot('hStackChart', ['GPS','GLONASS','Galileo','BeiDou'].map(c=>({
+    name:c,y:[],x:[],type:'scatter',mode:'lines',line:{color:COLORS[c],width:2},stackgroup:'sats'
+  })), histLayout('Count',{showlegend:true,legend:{orientation:'h',y:1.1}}));
+
+  ['hRate','hWifi','hSats','hTot','hAll','hStack'].forEach(k=>setLoading(k,true));
 }
-netTick();
-setInterval(netTick, NET_REFRESH_MS);
+function histLayout(yTitle, extra={}){
+  return {paper_bgcolor:'#111927',plot_bgcolor:'#0b1220',margin:{l:50,r:20,t:10,b:40},
+    xaxis:{showgrid:false,tickfont:{color:'#7c8ba8',size:10},tickangle:-30,nticks:12},
+    yaxis:{title:{text:yTitle,font:{color:'#7c8ba8',size:11}},gridcolor:'rgba(124,139,168,.14)',tickfont:{color:'#7c8ba8',size:10}},
+    font:{color:'#e8edf5',size:11},showlegend:false,...extra};
+}
+function renderHistory(d){
+  if(!d?.ok||!d.timestamps?.length){ $$('#hRateLoad,#hWifiLoad,#hSatsLoad,#hTotLoad,#hAllLoad,#hStackLoad').forEach(e=>e.textContent='Waiting for data…'); return; }
+  const times = d.timestamps.map(t=>new Date(t).toLocaleTimeString());
+  const last = (arr)=>arr[arr.length-1];
+  $('#hGPS').textContent = last(d.visible_sats.GPS) ?? '—';
+  $('#hGLO').textContent = last(d.visible_sats.GLONASS) ?? '—';
+  $('#hGAL').textContent = last(d.visible_sats.Galileo) ?? '—';
+  $('#hBDS').textContent = last(d.visible_sats.BeiDou) ?? '—';
+  $('#hTOT').textContent = last(d.total_visible) ?? '—';
+  $('#hUP').textContent = num(last(d.uplink)) + ' bps';
+  $('#hGNSS').textContent = num(last(d.gnss)) + ' bps';
+  $('#hWIFI').textContent = num(last(d.wifi)) + ' dBm';
+
+  Plotly.react('hRateChart', [
+    {x:times,y:d.uplink,name:'Uplink',type:'scatter',mode:'lines',line:{color:'#38bdf8',width:2}},
+    {x:times,y:d.gnss,name:'GNSS',type:'scatter',mode:'lines',line:{color:'#22c55e',width:2}}
+  ], histLayout('Rate (bps)'));
+  Plotly.react('hWifiChart', [{x:times,y:d.wifi,name:'WiFi',type:'scatter',mode:'lines',line:{color:'#f59e0b',width:2},fill:'tozeroy',fillcolor:'rgba(245,158,11,.15)'}], histLayout('dBm'));
+  Plotly.react('hSatsChart', ['GPS','GLONASS','Galileo','BeiDou'].map(c=>({x:times,y:d.visible_sats[c],name:c,type:'scatter',mode:'lines',line:{color:COLORS[c],width:2},stackgroup:'sats'})), histLayout('Count'));
+  Plotly.react('hTotChart', [{x:times,y:d.total_visible,name:'Total',type:'scatter',mode:'lines+markers',line:{color:'#e8edf5',width:2},marker:{size:4}}], histLayout('Count'));
+  Plotly.react('hAllChart', [
+    {x:times,y:d.uplink,name:'Uplink',yaxis:'y',type:'scatter',mode:'lines',line:{color:'#38bdf8',width:2}},
+    {x:times,y:d.gnss,name:'GNSS',yaxis:'y',type:'scatter',mode:'lines',line:{color:'#22c55e',width:2}},
+    {x:times,y:d.wifi,name:'WiFi',yaxis:'y2',type:'scatter',mode:'lines',line:{color:'#f59e0b',width:2,dash:'dot'}}
+  ], {paper_bgcolor:'#111927',plot_bgcolor:'#0b1220',margin:{l:50,r:20,t:10,b:40},
+    xaxis:{showgrid:false,tickfont:{color:'#7c8ba8',size:10},tickangle:-30,nticks:12},
+    yaxis:{title:{text:'Rate (bps)',font:{color:'#7c8ba8',size:11}},gridcolor:'rgba(124,139,168,.14)',tickfont:{color:'#7c8ba8',size:10}},
+    yaxis2:{title:{text:'WiFi (dBm)',font:{color:'#7c8ba8',size:11}},overlaying:'y',side:'right',gridcolor:'rgba(124,139,168,.05)',tickfont:{color:'#7c8ba8',size:10}},
+    font:{color:'#e8edf5',size:11},legend:{orientation:'h',y:1.1}});
+  Plotly.react('hStackChart', ['GPS','GLONASS','Galileo','BeiDou'].map(c=>({x:times,y:d.visible_sats[c],name:c,type:'scatter',mode:'lines',line:{color:COLORS[c],width:2},stackgroup:'sats'})), histLayout('Count',{showlegend:true,legend:{orientation:'h',y:1.1}}));
+}
+
+/* ===== 3D SCENE ===== */
+function init3DScene(){
+  chartsInitialized.d3 = true;
+  Plotly.newPlot('globe3d', [], d3Layout(), {displayModeBar:false,responsive:true});
+  setLoading('d3', true);
+}
+function d3Layout(){
+  return {paper_bgcolor:'#0b1220',plot_bgcolor:'#0b1220',margin:{l:0,r:0,t:30,b:0},
+    scene:{xaxis:{visible:false},yaxis:{visible:false},zaxis:{visible:false},camera:{eye:{x:1.5,y:1.5,z:1.2}},aspectmode:'data'},
+    font:{color:'#e8edf5',size:11},showlegend:true,
+    legend:{orientation:'h',x:0.5,xanchor:'center',y:-0.05,font:{color:'#e8edf5',size:11}}};
+}
+function build3DScene(sats){
+  if(!sats?.length) return;
+  try {
+  const station = {lat:46.104,lon:-64.755,elev:100};
+  const R=6371;
+  const toECEF=(lat,lon,alt)=>{const lt=lat*Math.PI/180,ln=lon*Math.PI/180,N=R/Math.sqrt(1-0.00669438*Math.sin(lt)**2);return{x:(N+alt)*Math.cos(lt)*Math.cos(ln),y:(N+alt)*Math.cos(lt)*Math.sin(ln),z:(N*(1-0.00669438)+alt)*Math.sin(lt)}};
+  const base = toECEF(station.lat,station.lon,station.elev/1000);
+  const traces = [];
+  const ep=30,ex=[],ey=[],ez=[];
+  for(let i=0;i<=ep;i++){const p=i*Math.PI/ep;for(let j=0;j<=ep;j++){const t=j*2*Math.PI/ep;ex.push(R*Math.sin(p)*Math.cos(t));ey.push(R*Math.sin(p)*Math.sin(t));ez.push(R*Math.cos(p));}}
+  traces.push({type:'scatter3d',mode:'markers',render_mode:'webgl',x:ex,y:ey,z:ez,marker:{size:1,color:'rgba(56,189,248,.15)',opacity:0.3},showlegend:false,hoverinfo:'skip'});
+  traces.push({type:'scatter3d',mode:'markers+text',render_mode:'webgl',x:[base.x],y:[base.y],z:[base.z],marker:{size:10,color:'#38bdf8',symbol:'diamond'},text:['#1087 MONCTON'],textposition:'top center',name:'Our Base',showlegend:true});
+  const by={GPS:[],GLONASS:[],Galileo:[],BeiDou:[]};
+  for(const s of sats){
+    if(!Number.isFinite(s.azimuth)||!Number.isFinite(s.elevation)) continue;
+    const az=s.azimuth*Math.PI/180,el=s.elevation*Math.PI/180,range=s.distance_km;
+    const lt=station.lat*Math.PI/180,ln=station.lon*Math.PI/180;
+    const e=range*Math.cos(el)*Math.sin(az),n=range*Math.cos(el)*Math.cos(az),u=range*Math.sin(el);
+    const x=-Math.sin(ln)*e-Math.sin(lt)*Math.cos(ln)*n+Math.cos(lt)*Math.cos(ln)*u;
+    const y= Math.cos(ln)*e-Math.sin(lt)*Math.sin(ln)*n+Math.cos(lt)*Math.cos(ln)*u;
+    const z=                           Math.cos(lt)*n+Math.sin(lt)*u;
+    by[s.constellation].push({x:x+base.x,y:y+base.y,z:z+base.z,name:s.name,id:s.prn,el:s.elevation,az:s.azimuth});
+  }
+  for(const [c,pts] of Object.entries(by)){
+    if(!pts.length) continue;
+    traces.push({type:'scatter3d',mode:'markers',render_mode:'webgl',x:pts.map(p=>p.x),y:pts.map(p=>p.y),z:pts.map(p=>p.z),marker:{size:6,color:COLORS[c],opacity:0.9},name:c,text:pts.map(p=>`${c} ${p.id}\nEl:${p.el.toFixed(1)}°\nAz:${p.az.toFixed(1)}°`),hoverinfo:'text',showlegend:true});
+    const lx=[],ly=[],lz=[];
+    for(const p of pts){lx.push(base.x,p.x,null);ly.push(base.y,p.y,null);lz.push(base.z,p.z,null);}
+    traces.push({type:'scatter3d',mode:'lines',x:lx,y:ly,z:lz,line:{color:COLORS[c],width:1,opacity:0.3},showlegend:false,hoverinfo:'skip'});
+  }
+  Plotly.react('globe3d', traces, d3Layout(), {displayModeBar:false,responsive:true})
+    .catch(e => console.error('build3DScene Plotly error:', e));
+  setLoading('d3', true);
+  } catch(e) { console.error('build3DScene error:', e); }
+}
+
+function render3DStats(s){
+  if(!s?.ok) return;
+  const c=s.by_constellation||{};
+  $('#d3GPS').textContent=c.GPS??0; $('#d3GLO').textContent=c.GLONASS??0; $('#d3GAL').textContent=c.Galileo??0; $('#d3BDS').textContent=c.BeiDou??0; $('#d3Tot').textContent=s.total_visible??0;
+}
+
+/* ===== DATA FETCH & RENDER LOOP ===== */
+async function refreshAll(){
+  try{
+    const [tr, sr, nr, hr] = await Promise.all([
+      fetch(ENDPOINTS.tele,{cache:'no-store'}),
+      fetch(ENDPOINTS.sky,{cache:'no-store'}),
+      fetch(ENDPOINTS.net,{cache:'no-store'}),
+      fetch(ENDPOINTS.hist,{cache:'no-store'})
+    ]);
+    teleData = await tr.json();
+    skyData = await sr.json();
+    netData = await nr.json();
+    histData = await hr.json();
+
+    renderLive(teleData, skyData);
+    recordRates(teleData);
+    drawRateChart();
+    drawSkyplot();
+    drawNetMap(netData);
+    drawNetMetrics(netData);
+    renderHistory(histData);
+    build3DScene(skyData?.visible||[]);
+    render3DStats(skyData);
+    updateFooter(teleData, skyData);
+  }catch(e){console.error('refreshAll:',e);}
+}
+async function refreshTelemetry(){
+  try{
+    const r = await fetch(ENDPOINTS.tele,{cache:'no-store'});
+    teleData = await r.json();
+    renderLive(teleData, skyData);
+    recordRates(teleData);
+    drawRateChart();
+    updateFooter(teleData, skyData);
+  }catch(e){console.error('telemetry:',e);}
+}
+
+/* ===== INIT ===== */
+document.addEventListener('DOMContentLoaded',()=>{
+  if(typeof Plotly !== 'undefined') plotlyReady = true;
+  refreshAll();
+  // Initialize live view charts immediately since it's the default active tab
+  initRateChart();
+  initSkyplot();
+  setInterval(refreshAll, 30000);
+  setInterval(refreshTelemetry, 4000);
+  let resizeTimer;
+  window.addEventListener('resize',()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>$$('.view.active .chart').forEach(c=>{try{Plotly.Plots.resize(c)}catch(e){}}),150)});
+});
 </script>
 </body>
 </html>
